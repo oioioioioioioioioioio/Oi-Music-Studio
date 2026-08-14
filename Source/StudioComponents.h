@@ -49,6 +49,7 @@ public:
     void resized() override;
 
     IconButton moveButton { Icon::pointer, "Move clip" };
+    IconButton rangeButton { Icon::range, "Spatial range" };
     IconButton splitButton { Icon::scissors, "Split clip" };
     IconButton duplicateButton { Icon::copy, "Duplicate clip" };
     IconButton spatialButton { Icon::orbit, "Spatial settings" };

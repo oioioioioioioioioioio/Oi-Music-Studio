@@ -518,7 +518,7 @@ void IconButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
 ClipContextToolbar::ClipContextToolbar()
 {
     deleteButton.getProperties().set ("danger", true);
-    for (auto* button : { &moveButton, &splitButton, &duplicateButton,
+    for (auto* button : { &moveButton, &rangeButton, &splitButton, &duplicateButton,
                           &spatialButton, &deleteButton })
         addAndMakeVisible (*button);
 }
@@ -536,9 +536,9 @@ void ClipContextToolbar::paint (juce::Graphics& g)
 void ClipContextToolbar::resized()
 {
     auto area = getLocalBounds().reduced (3);
-    const auto buttonWidth = juce::jmax (1, area.getWidth() / 5);
-    IconButton* const buttons[] { &moveButton, &splitButton, &duplicateButton,
+    IconButton* const buttons[] { &moveButton, &rangeButton, &splitButton, &duplicateButton,
                                   &spatialButton, &deleteButton };
+    const auto buttonWidth = juce::jmax (1, area.getWidth() / static_cast<int> (std::size (buttons)));
     for (size_t index = 0; index < std::size (buttons); ++index)
         buttons[index]->setBounds (index + 1 == std::size (buttons)
                                        ? area
@@ -3622,12 +3622,23 @@ MainComponent::MainComponent()
             }
             for (size_t button = 2; button <= 5; ++button)
                 toolButtons[button]->setToggleState (button == i, juce::dontSendNotification);
+            updateToggleStates();
+            timeline.repaint();
         };
     }
 
     clipContextToolbar.moveButton.onClick = [this]
     {
         toolButtons[2]->triggerClick();
+    };
+    clipContextToolbar.rangeButton.onClick = [this]
+    {
+        state.selectedSpatialRegionId = 0;
+        state.selectedRangeStart = 0.0;
+        state.selectedRangeEnd = 0.0;
+        syncSpatialStateFromSelection();
+        inspector.syncFromState();
+        toolButtons[3]->triggerClick();
     };
     clipContextToolbar.splitButton.onClick = [this]
     {
@@ -4402,10 +4413,10 @@ void MainComponent::resized()
     if (showClipContext)
     {
         const auto availableWidth = juce::jmax (0, timeline.getWidth() - 116);
-        const auto contextWidth = juce::jmin (190, availableWidth);
+        const auto contextWidth = juce::jmin (252, availableWidth);
         clipContextToolbar.setBounds (timeline.getX() + 108,
                                       timeline.getY() + 32,
-                                      contextWidth, 38);
+                                      contextWidth, 40);
         clipContextToolbar.toFront (false);
     }
     else
@@ -4534,6 +4545,9 @@ void MainComponent::refreshText()
     setIconHelp (inspectorToggle, "显示或隐藏检查器", "Show or hide the inspector");
     setIconHelp (layoutButton, "工作区布局设置", "Workspace layout settings");
     setIconHelp (clipContextToolbar.moveButton, "移动选中片段", "Move the selected clip");
+    setIconHelp (clipContextToolbar.rangeButton,
+                 "空间范围：在片段上拖动以创建多段环绕与音量区间",
+                 "Spatial range: drag on the clip to create multiple spatial and volume regions");
     setIconHelp (clipContextToolbar.splitButton, "分割工具：点击片段内的时间位置", "Split tool: tap a time inside the clip");
     setIconHelp (clipContextToolbar.duplicateButton, "复制选中片段", "Duplicate the selected clip");
     setIconHelp (clipContextToolbar.spatialButton, "打开选中片段的 3D 空间参数", "Open spatial settings for the selected clip");
@@ -4584,6 +4598,15 @@ void MainComponent::updateToggleStates()
 {
     chineseButton.setToggleState (state.language == Language::chinese, juce::dontSendNotification);
     englishButton.setToggleState (state.language == Language::english, juce::dontSendNotification);
+    for (size_t index = 2; index <= 5; ++index)
+        toolButtons[index]->setToggleState (
+            index - 2 == static_cast<size_t> (state.activeTool), juce::dontSendNotification);
+    clipContextToolbar.moveButton.setToggleState (state.activeTool == Tool::select,
+                                                   juce::dontSendNotification);
+    clipContextToolbar.rangeButton.setToggleState (state.activeTool == Tool::range,
+                                                    juce::dontSendNotification);
+    clipContextToolbar.splitButton.setToggleState (state.activeTool == Tool::split,
+                                                    juce::dontSendNotification);
     const auto phone = getWidth() > 0 && isPhoneLayout();
     browserToggle.setToggleState (phone ? mobilePanel == "browser" : state.layout.browserVisible,
                                   juce::dontSendNotification);
@@ -4697,6 +4720,7 @@ void MainComponent::showMobileMenu()
                     component->syncSpatialStateFromSelection();
                     component->inspector.syncFromState();
                 }
+                component->updateToggleStates();
                 component->timeline.repaint();
             }
             else if (result == 9)
@@ -4944,6 +4968,8 @@ void MainComponent::showEditMenu()
             for (size_t button = 2; button <= 5; ++button)
                 component->toolButtons[button]->setToggleState (
                     button == static_cast<size_t> (result - 8), juce::dontSendNotification);
+            component->updateToggleStates();
+            component->timeline.repaint();
         }
     });
 }
