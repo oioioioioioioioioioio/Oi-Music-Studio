@@ -1,0 +1,16 @@
+/build/
+/out/
+/.vs/
+/.vscode/
+*.user
+*.suo
+*.VC.db
+JUCE-*.zip
+/Builds/Android/.gradle/
+/Builds/Android/build/
+/Builds/Android/app/.cxx/
+/Builds/Android/app/build/
+/Builds/Android/local.properties
+/.idea/
+/.DS_Store
+/oi_music_editor_android_*.png

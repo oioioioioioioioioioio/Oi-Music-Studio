@@ -1,0 +1,74 @@
+plugins {
+    id 'com.android.application'
+}
+
+def juceRoot = file('../../../external/JUCE')
+def oiJuceHostToolsDir = project.findProperty('oiJuceHostToolsDir')
+
+android {
+    namespace 'studio.oi.musiceditor'
+    compileSdk 36
+    buildToolsVersion '36.0.0'
+    ndkVersion '28.2.13676358'
+
+    defaultConfig {
+        applicationId 'studio.oi.musiceditor'
+        minSdk 24
+        targetSdk 35
+        versionCode 6
+        versionName '0.1.5'
+
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_TOOLCHAIN=clang',
+                          '-DANDROID_PLATFORM=android-24',
+                          '-DANDROID_STL=c++_static',
+                          '-DANDROID_CPP_FEATURES=exceptions rtti',
+                          '-DANDROID_WEAK_API_DEFS=ON',
+                          '-DCMAKE_CXX_STANDARD=20',
+                          '-DCMAKE_CXX_EXTENSIONS=OFF'
+                if (oiJuceHostToolsDir != null && !oiJuceHostToolsDir.toString().trim().isEmpty())
+                    arguments "-DOI_JUCE_HOST_TOOLS_DIR=${oiJuceHostToolsDir}"
+            }
+        }
+
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path 'CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+            jniDebuggable true
+        }
+        release {
+            minifyEnabled false
+            debuggable false
+            jniDebuggable false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    sourceSets {
+        main.java.srcDirs += [
+            new File(juceRoot, 'modules/juce_core/native/javacore/init'),
+            new File(juceRoot, 'modules/juce_core/native/javacore/app'),
+            new File(juceRoot, 'modules/juce_gui_basics/native/javaopt/app'),
+            new File(juceRoot, 'modules/juce_audio_devices/native/javaopt/app')
+        ]
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging false
+        }
+    }
+}
