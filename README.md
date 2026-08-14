@@ -1,19 +1,19 @@
-# 0i Studio
+# 0i-Studio
 
 Native C++20/JUCE desktop and Android application for a professional multitrack
 and spatial audio editor.
 
-Current release: **0.1.5** (`versionCode 6` on Android).
+Current release: **0.1.6** (`versionCode 7` on Android).
 
 ## Current milestone
 
 - Professional Edit, Spatial, and Mix workspaces
 - Dark/light themes and runtime Chinese/English switching
 - Adjustable browser, inspector, track, and mixer layout dimensions
-- Five-track starting layout with addable, nameable, and renameable tracks (up to 12), real waveform thumbnails, and clip metadata
+- One empty starting track, with user-added, nameable, and renameable tracks (up to 12), real waveform thumbnails, and clip metadata
 - Explicit multi-file/folder media import, media-browser drag-and-drop to any track, time-ruler seeking, clip selection, splitting, drag/cross-track move, duplication, deletion, undo, and redo
 - Same-track clip-edge snapping with a visible guide and temporary `Alt` bypass
-- Timeline shortcuts: `Ctrl+wheel` zooms, `Alt+wheel` scrolls horizontally, and `Space` toggles play/pause
+- Timeline navigation: on touch screens, drag the ruler or empty lane with one finger to pan and pinch with two fingers to zoom; on desktop, `Ctrl+wheel` zooms, `Alt+wheel` scrolls horizontally, and `Space` toggles play/pause
 - The timeline header `+` button opens the same named-track dialog as the Track menu
 - Real-time multitrack mixing with per-track gain, pan, mute, solo, and meters
 - Clip gain, master gain, transport seek/loop, and variable-speed playback
@@ -41,7 +41,7 @@ names so each client selects its own package:
 
 The top menus are functional editing entry points rather than placeholders:
 
-- **File** imports audio, changes the media folder, opens export and audio-device settings, and checks for updates.
+- **File** imports audio, changes the media folder, opens export/audio-device settings, checks for updates, and shows contact information.
 - **Edit** provides undo/redo, clip duplication/deletion, playhead splitting, and select/range/split tools.
 - **Track** imports to the selected track, toggles mute/solo/3D rendering, resets track mix, and selects a track.
 - **Clip** splits, duplicates, deletes, resets clip gain, removes a selected spatial region, and moves a clip to another track.
@@ -50,6 +50,8 @@ The top menus are functional editing entry points rather than placeholders:
 The left media browser has Project, Local, and Spatial Presets pages. It starts empty and only lists files or folders explicitly imported by the user; it never scans a fixed drive. Imported media can be dragged directly to a chosen track or double-clicked to add it at the playhead. Project items locate clips in the timeline, while presets apply a complete spatial parameter set to the selected track or spatial region. Search and refresh apply to the active page.
 
 The current JUCE reader path is verified for WAV, AIFF, FLAC, OGG, and MP3. M4A files can be listed by the browser, but AAC/M4A decoding requires an additional codec backend; those files currently show the normal unsupported-format warning on import.
+
+Contact is available in **File > About & contact** on Windows and **More > About & contact** on Android: QQ 2224248204.
 
 The spatial renderer is a real-time speaker-object panner. On stereo devices, it uses deterministic pseudo-binaural interaural delay and head-shadow filtering, with rear/elevation spectral cues; without a measured HRTF/SOFA dataset, stereo still cannot guarantee reliable front/rear or vertical localisation. On 4.0, 5.0, 5.1, 6.1, 7.1, 5.1.4, and 7.1.4 output configurations, object position is distributed across the corresponding speaker field. Distance attenuates level, elevation selects height speakers when available, orbit speed supports -360 to +360 degrees per timeline second, directivity narrows the speaker distribution, and spread retains controlled source width in stereo. The range tool creates local spatial and relative-gain overrides; independent DSP paths are crossfaded sample by sample with a smoothstep envelope while sharing the timeline orbit phase, so the base 3D render remains continuous outside each region. The canvas displays the active device layout, current orbit phase, speed, and seconds per revolution. Orbit follows timeline time, so changing playback speed changes its wall-clock rotation rate. Offline WAV export shares this renderer and writes the selected speaker layout without changing live playback state. The current engine decodes imported audio into memory and uses linear resampling for playback speed, so speed changes also change pitch. Pitch-lock controls, recording, effects, pitch-preserving time stretch, Doppler processing, listener head tracking, and measured HRTF rendering still require dedicated DSP backends.
 

@@ -222,6 +222,19 @@ const Palette& coloursOf (juce::Component& component)
     return fallbackLook.colours();
 }
 
+juce::String displayTrackName (const juce::String& storedName, int trackIndex,
+                               const Localizer& localizer)
+{
+    const auto generatedName = "Track " + juce::String (trackIndex + 1);
+    if (storedName.isNotEmpty() && storedName != generatedName)
+        return storedName;
+
+    return (localizer.getLanguage() == Language::chinese
+                ? juce::String::fromUTF8 ("\u8f68\u9053 ")
+                : juce::String ("Track "))
+         + juce::String (trackIndex + 1);
+}
+
 void drawIconGlyph (juce::Graphics& g, Icon icon, juce::Rectangle<float> bounds, juce::Colour colour)
 {
     const auto cx = bounds.getCentreX();
@@ -958,11 +971,11 @@ void MediaBrowser::activateItem (int row)
 TimelineComponent::TimelineComponent (Localizer& strings, AppState& appState, AudioEngine& engine)
     : localizer (strings), state (appState), audioEngine (engine),
       tracks {{
-          { TextId::leadVocal, "OBJ 01", juce::Colour (0xfff17868), 0.74f, {{ 0.04f, 0.39f }, { 0.48f, 0.35f }} },
-          { TextId::synth, "ST", juce::Colour (0xff6b9ff1), 0.57f, {{ 0.00f, 0.29f }, { 0.31f, 0.52f }} },
-          { TextId::drums, "ST", juce::Colour (0xff55ca7a), 0.86f, {{ 0.00f, 0.83f }} },
-          { TextId::atmosphere, "OBJ 02", juce::Colour (0xffdcb055), 0.42f, {{ 0.08f, 0.75f }} },
-          { TextId::fxReturn, "BUS", juce::Colour (0xffb781df), 0.35f, {{ 0.14f, 0.69f }} }
+          { TextId::tracks, "ST", juce::Colour (0xfff17868) },
+          { TextId::tracks, "ST", juce::Colour (0xff6b9ff1) },
+          { TextId::tracks, "ST", juce::Colour (0xff55ca7a) },
+          { TextId::tracks, "ST", juce::Colour (0xffdcb055) },
+          { TextId::tracks, "ST", juce::Colour (0xffb781df) }
       }}
 {
     audioEngine.addChangeListener (this);
@@ -990,8 +1003,8 @@ void TimelineComponent::refreshText()
     addTrackButton.setTooltip (addTrackHelp);
     addTrackButton.setEnabled (audioEngine.getTrackCount() < AudioEngine::maximumTrackCount);
     setTooltip (localizer.getLanguage() == Language::chinese
-        ? juce::String::fromUTF8 ("\u7a7a\u683c\uff1a\u64ad\u653e/\u6682\u505c  |  Ctrl+\u9f20\u6807\u6eda\u8f6e\uff1a\u7f29\u653e  |  Alt+\u9f20\u6807\u6eda\u8f6e\uff1a\u6c34\u5e73\u6eda\u52a8")
-        : juce::String ("Space: play/pause  |  Ctrl+wheel: zoom  |  Alt+wheel: horizontal scroll"));
+        ? juce::String::fromUTF8 ("\u5355\u6307\u62d6\u52a8\u7a7a\u767d\u533a\uff1a\u6c34\u5e73\u79fb\u52a8  |  \u53cc\u6307\uff1a\u7f29\u653e  |  Ctrl+\u9f20\u6807\u6eda\u8f6e\uff1a\u7f29\u653e")
+        : juce::String ("Drag empty space: pan  |  Pinch: zoom  |  Ctrl+wheel: zoom"));
     repaint();
 }
 
@@ -1012,13 +1025,17 @@ int TimelineComponent::rulerHeight() const noexcept
     return landscapeTouch ? 30 : 36;
 }
 
-double TimelineComponent::visibleLength() const noexcept
+double TimelineComponent::timelineExtent() const noexcept
 {
     const auto projectLength = audioEngine.getLength();
-    const auto baseLength = projectLength > 0.0
+    return projectLength > 0.0
         ? juce::jmax (30.0, std::ceil (projectLength / 30.0) * 30.0)
         : 120.0;
-    return juce::jmax (8.0, baseLength / timelineZoom);
+}
+
+double TimelineComponent::visibleLength() const noexcept
+{
+    return juce::jmax (8.0, timelineExtent() / timelineZoom);
 }
 
 int TimelineComponent::trackHeight() const noexcept
@@ -1172,8 +1189,7 @@ void TimelineComponent::paint (juce::Graphics& g)
 
         g.setColour (c.text);
         g.setFont (juce::FontOptions (compactTrackHeader ? 9.5f : 10.5f));
-        const auto trackName = engineTrack.name.isNotEmpty() ? engineTrack.name
-                                                              : localizer.text (track.name);
+        const auto trackName = displayTrackName (engineTrack.name, index, localizer);
         g.drawFittedText (trackName,
                           header.withTrimmedLeft (12).withTrimmedRight (34)
                                 .removeFromTop (compactTrackHeader ? 20 : 29),
@@ -1208,8 +1224,7 @@ void TimelineComponent::paint (juce::Graphics& g)
                                              static_cast<float> (buttonY + 7), meterWidth, 3.0f);
         g.setColour (c.hover);
         g.fillRoundedRectangle (meter, 1.5f);
-        const auto meterLevel = audioEngine.hasFile() ? audioEngine.getTrackMeter (index)
-                                                      : track.level;
+        const auto meterLevel = audioEngine.getTrackMeter (index);
         g.setColour (c.green);
         g.fillRoundedRectangle (meter.withWidth (meter.getWidth()
                                                   * juce::jlimit (0.0f, 1.0f, meterLevel)),
@@ -1226,58 +1241,12 @@ void TimelineComponent::paint (juce::Graphics& g)
             g.drawVerticalLine (juce::roundToInt (x), lane.getY(), lane.getBottom());
         }
 
-        const auto& projectClips = engineTrack.clips;
-        if (audioEngine.hasFile())
+        for (const auto& projectClip : engineTrack.clips)
         {
-            for (size_t clipIndex = 0; clipIndex < projectClips.size(); ++clipIndex)
-            {
-                const auto& projectClip = projectClips[clipIndex];
-                if (draggingClip && projectClip.id == draggedClipId && dragTargetTrack != index)
-                    continue;
-                const auto isDragged = draggingClip && projectClip.id == draggedClipId;
-                paintClip (g, projectClip, index, lane, track.colour, timelineLength, isDragged);
-            }
-        }
-        else
-        {
-            for (size_t clipIndex = 0; clipIndex < track.clips.size(); ++clipIndex)
-            {
-                const auto [left, width] = track.clips[clipIndex];
-                auto clip = juce::Rectangle<float> (lane.getX() + lane.getWidth() * left,
-                                                    lane.getY() + 7.0f,
-                                                    lane.getWidth() * width,
-                                                    lane.getHeight() - 14.0f);
-                g.setColour (track.colour.withAlpha (0.2f).overlaidWith (c.raised.withAlpha (0.75f)));
-                g.fillRoundedRectangle (clip, 3.0f);
-                g.setColour (track.colour.withAlpha (0.72f));
-                g.drawRoundedRectangle (clip, 3.0f, 1.0f);
-                drawWaveform (g, clip.reduced (3.0f).withTrimmedTop (13.0f), track.colour,
-                              index * 7 + static_cast<int> (clipIndex));
-                const auto* clipNameUtf8 = index == 0 ? (clipIndex == 0 ? "Lead Vox · Verse" : "Lead Vox · Chorus")
-                                         : index == 1 ? "Glass Keys · Main"
-                                         : index == 2 ? "Neon Kit · 96 BPM"
-                                         : index == 3 ? "City Rain · Wide" : "Spatial Reverb Print";
-                const auto clipName = juce::String::fromUTF8 (clipNameUtf8);
-                g.setColour (c.text);
-                g.setFont (juce::FontOptions (8.5f));
-                g.drawFittedText (clipName, clip.toNearestInt().withTrimmedLeft (6).removeFromTop (16),
-                                  juce::Justification::centredLeft, 1);
-            }
-        }
-
-        if (index == 0)
-        {
-            juce::Path automation;
-            const auto top = lane.getY() + lane.getHeight() * 0.58f;
-            automation.startNewSubPath (lane.getX(), top + 10.0f);
-            automation.cubicTo (lane.getX() + lane.getWidth() * 0.2f, top + 10.0f,
-                                lane.getX() + lane.getWidth() * 0.28f, top - 12.0f,
-                                lane.getX() + lane.getWidth() * 0.45f, top - 4.0f);
-            automation.cubicTo (lane.getX() + lane.getWidth() * 0.62f, top + 15.0f,
-                                lane.getX() + lane.getWidth() * 0.73f, top - 12.0f,
-                                lane.getRight(), top - 7.0f);
-            g.setColour (c.yellow);
-            g.strokePath (automation, juce::PathStrokeType (1.4f));
+            if (draggingClip && projectClip.id == draggedClipId && dragTargetTrack != index)
+                continue;
+            const auto isDragged = draggingClip && projectClip.id == draggedClipId;
+            paintClip (g, projectClip, index, lane, track.colour, timelineLength, isDragged);
         }
     }
 
@@ -1316,7 +1285,7 @@ void TimelineComponent::paint (juce::Graphics& g)
     {
         const auto snapX = xAtTime (snapGuideTime);
         g.setColour (c.accent.withAlpha (0.78f));
-        g.drawVerticalLine (juce::roundToInt (snapX), headerHeight,
+        g.drawVerticalLine (juce::roundToInt (snapX), static_cast<float> (headerHeight),
                             static_cast<float> (headerHeight + visibleTrackCount * trackHeight));
         g.setFont (juce::FontOptions (8.0f));
         g.drawText ("SNAP", juce::roundToInt (snapX + 4.0f), headerHeight + 2,
@@ -1338,11 +1307,10 @@ void TimelineComponent::paintClip (juce::Graphics& g, const AudioEngine::Clip& p
 {
     const auto& c = coloursOf (*this);
     const auto displayStart = dragged ? dragPreviewStart : projectClip.timelineStart;
-    const auto left = static_cast<float> (displayStart / timelineLength);
-    const auto width = static_cast<float> (projectClip.duration / timelineLength);
-    auto clip = juce::Rectangle<float> (lane.getX() + lane.getWidth() * left,
+    auto clip = juce::Rectangle<float> (xAtTime (displayStart),
                                         lane.getY() + 7.0f,
-                                        juce::jmax (12.0f, lane.getWidth() * width),
+                                        juce::jmax (12.0f, xAtTime (displayStart + projectClip.duration)
+                                                             - xAtTime (displayStart)),
                                         lane.getHeight() - 14.0f);
     const auto selected = state.selectedClipId == projectClip.id;
     const auto hovered = hoveredClipId == projectClip.id;
@@ -1357,9 +1325,9 @@ void TimelineComponent::paintClip (juce::Graphics& g, const AudioEngine::Clip& p
     {
         const auto regionStart = displayStart + region.startOffset;
         auto regionBounds = juce::Rectangle<float> (
-            lane.getX() + lane.getWidth() * static_cast<float> (regionStart / timelineLength),
+            xAtTime (regionStart),
             clip.getY() + 1.0f,
-            juce::jmax (2.0f, lane.getWidth() * static_cast<float> (region.duration / timelineLength)),
+            juce::jmax (2.0f, xAtTime (regionStart + region.duration) - xAtTime (regionStart)),
             clip.getHeight() - 2.0f).getIntersection (clip.reduced (1.0f));
         const auto regionSelected = region.id == state.selectedSpatialRegionId;
         g.setColour (c.accent.withAlpha (regionSelected ? 0.28f : 0.16f));
@@ -1425,11 +1393,9 @@ void TimelineComponent::paintClip (juce::Graphics& g, const AudioEngine::Clip& p
         && rangePreviewEnd > rangePreviewStart)
     {
         auto preview = juce::Rectangle<float> (
-            lane.getX() + lane.getWidth() * static_cast<float> (rangePreviewStart / timelineLength),
+            xAtTime (rangePreviewStart),
             clip.getY() + 1.0f,
-            juce::jmax (2.0f, lane.getWidth()
-                                  * static_cast<float> ((rangePreviewEnd - rangePreviewStart)
-                                                        / timelineLength)),
+            juce::jmax (2.0f, xAtTime (rangePreviewEnd) - xAtTime (rangePreviewStart)),
             clip.getHeight() - 2.0f).getIntersection (clip.reduced (1.0f));
         g.setColour (c.accent.withAlpha (0.24f));
         g.fillRoundedRectangle (preview, 2.0f);
@@ -1456,28 +1422,6 @@ void TimelineComponent::paintClip (juce::Graphics& g, const AudioEngine::Clip& p
     }
 }
 
-void TimelineComponent::drawWaveform (juce::Graphics& g, juce::Rectangle<float> area,
-                                      juce::Colour colour, int seed) const
-{
-    if (area.isEmpty())
-        return;
-
-    juce::Path path;
-    path.startNewSubPath (area.getX(), area.getCentreY());
-    const auto columns = juce::jmax (12, juce::roundToInt (area.getWidth() / 4.0f));
-    for (int i = 0; i <= columns; ++i)
-    {
-        const auto phase = static_cast<float> ((i * 37 + seed * 19) % 97) / 97.0f;
-        const auto harmonic = std::abs (std::sin ((i + seed * 0.6f) * 0.71f));
-        const auto amplitude = area.getHeight() * (0.12f + 0.34f * phase + 0.18f * harmonic);
-        const auto x = area.getX() + area.getWidth() * i / static_cast<float> (columns);
-        path.lineTo (x, area.getCentreY() - amplitude);
-        path.lineTo (x, area.getCentreY() + amplitude);
-    }
-    g.setColour (colour.withAlpha (0.78f));
-    g.strokePath (path, juce::PathStrokeType (1.0f));
-}
-
 void TimelineComponent::drawClipThumbnail (juce::Graphics& g, juce::Rectangle<float> area,
                                            const AudioEngine::Clip& clip) const
 {
@@ -1488,10 +1432,135 @@ void TimelineComponent::drawClipThumbnail (juce::Graphics& g, juce::Rectangle<fl
                                           clip.sourceOffset + clip.duration, 0.82f);
 }
 
+void TimelineComponent::updateTouchPoint (const juce::MouseEvent& event, bool addIfMissing)
+{
+    const auto sourceIndex = event.source.getIndex();
+    for (auto& touch : activeTouches)
+    {
+        if (touch.sourceIndex == sourceIndex)
+        {
+            touch.position = event.position;
+            return;
+        }
+    }
+
+    if (! addIfMissing)
+        return;
+
+    for (auto& touch : activeTouches)
+    {
+        if (touch.sourceIndex < 0)
+        {
+            touch.sourceIndex = sourceIndex;
+            touch.position = event.position;
+            return;
+        }
+    }
+}
+
+void TimelineComponent::removeTouchPoint (int sourceIndex) noexcept
+{
+    for (auto& touch : activeTouches)
+    {
+        if (touch.sourceIndex == sourceIndex)
+        {
+            touch = {};
+            return;
+        }
+    }
+}
+
+int TimelineComponent::activeTouchCount() const noexcept
+{
+    return static_cast<int> (std::count_if (activeTouches.begin(), activeTouches.end(),
+                                            [] (const TouchPoint& touch)
+                                            {
+                                                return touch.sourceIndex >= 0;
+                                            }));
+}
+
+void TimelineComponent::cancelEditingGesture() noexcept
+{
+    draggingPlayhead = false;
+    draggingClip = false;
+    draggingRange = false;
+    clipDragMoved = false;
+    rangeDragMoved = false;
+    dragSourceTrack = -1;
+    dragTargetTrack = -1;
+    draggedClipId = 0;
+    snapGuideTime = -1.0;
+    rangeHitRegionId = 0;
+}
+
+void TimelineComponent::clampTimelineViewStart() noexcept
+{
+    timelineViewStart = juce::jlimit (0.0,
+                                      juce::jmax (0.0, timelineExtent() - visibleLength()),
+                                      timelineViewStart);
+}
+
+void TimelineComponent::beginPinchGesture()
+{
+    if (activeTouchCount() < 2)
+        return;
+
+    cancelEditingGesture();
+    touchPanPending = false;
+    panningTimeline = false;
+    touchTapSetsPlayhead = false;
+    pinchingTimeline = true;
+
+    const auto& first = activeTouches[0].position;
+    const auto& second = activeTouches[1].position;
+    pinchInitialDistance = juce::jmax (1.0f, first.getDistanceFrom (second));
+    pinchInitialZoom = timelineZoom;
+
+    const auto midpoint = (first + second) * 0.5f;
+    const auto laneWidth = juce::jmax (1.0, static_cast<double> (getWidth() - trackHeaderWidth()));
+    pinchAnchorNormal = juce::jlimit (0.0, 1.0,
+                                      (static_cast<double> (midpoint.x) - trackHeaderWidth())
+                                          / laneWidth);
+    pinchAnchorTime = timeAtX (midpoint.x);
+}
+
+void TimelineComponent::updatePinchGesture()
+{
+    if (! pinchingTimeline || activeTouchCount() < 2)
+        return;
+
+    const auto distance = activeTouches[0].position.getDistanceFrom (activeTouches[1].position);
+    const auto scale = static_cast<double> (distance / pinchInitialDistance);
+    timelineZoom = juce::jlimit (0.25, 16.0, pinchInitialZoom * scale);
+    timelineViewStart = pinchAnchorTime - pinchAnchorNormal * visibleLength();
+    clampTimelineViewStart();
+    repaint();
+}
+
 void TimelineComponent::mouseDown (const juce::MouseEvent& event)
 {
     const auto headerWidth = trackHeaderWidth();
     const auto ruler = rulerHeight();
+    const auto touch = event.source.isTouch();
+    if (touch)
+    {
+        const auto startsNewGesture = activeTouchCount() == 0;
+        updateTouchPoint (event, true);
+        if (startsNewGesture)
+        {
+            primaryTouchSource = event.source.getIndex();
+            touchGestureConsumed = false;
+        }
+        if (touchGestureConsumed)
+            return;
+        if (activeTouchCount() >= 2)
+        {
+            beginPinchGesture();
+            repaint();
+            return;
+        }
+    }
+
     draggingPlayhead = false;
     draggingClip = false;
     draggingRange = false;
@@ -1504,8 +1573,19 @@ void TimelineComponent::mouseDown (const juce::MouseEvent& event)
     {
         if (event.x >= headerWidth && ! event.mods.isPopupMenu())
         {
-            draggingPlayhead = true;
-            setPlayheadFromX (event.position.x);
+            if (touch)
+            {
+                touchPanPending = true;
+                panningTimeline = false;
+                touchTapSetsPlayhead = true;
+                touchPanOrigin = event.position;
+                touchPanViewStart = timelineViewStart;
+            }
+            else
+            {
+                draggingPlayhead = true;
+                setPlayheadFromX (event.position.x);
+            }
         }
         return;
     }
@@ -1562,6 +1642,14 @@ void TimelineComponent::mouseDown (const juce::MouseEvent& event)
     if (! clickedClip.has_value())
     {
         selectClip (trackIndex, 0);
+        if (touch && ! event.mods.isPopupMenu())
+        {
+            touchPanPending = true;
+            panningTimeline = false;
+            touchTapSetsPlayhead = false;
+            touchPanOrigin = event.position;
+            touchPanViewStart = timelineViewStart;
+        }
         repaint();
         return;
     }
@@ -1644,6 +1732,33 @@ void TimelineComponent::mouseDown (const juce::MouseEvent& event)
 
 void TimelineComponent::mouseDrag (const juce::MouseEvent& event)
 {
+    if (event.source.isTouch())
+    {
+        updateTouchPoint (event, false);
+        if (pinchingTimeline)
+        {
+            updatePinchGesture();
+            return;
+        }
+        if (touchGestureConsumed)
+            return;
+        if (event.source.getIndex() == primaryTouchSource && touchPanPending)
+        {
+            const auto deltaX = event.position.x - touchPanOrigin.x;
+            if (! panningTimeline && std::abs (deltaX) >= 6.0f)
+                panningTimeline = true;
+            if (panningTimeline)
+            {
+                const auto laneWidth = juce::jmax (1.0, static_cast<double> (getWidth() - trackHeaderWidth()));
+                timelineViewStart = touchPanViewStart
+                                  - static_cast<double> (deltaX) / laneWidth * visibleLength();
+                clampTimelineViewStart();
+                repaint();
+            }
+            return;
+        }
+    }
+
     if (draggingPlayhead)
     {
         setPlayheadFromX (event.position.x);
@@ -1705,8 +1820,55 @@ void TimelineComponent::mouseDrag (const juce::MouseEvent& event)
     repaint();
 }
 
-void TimelineComponent::mouseUp (const juce::MouseEvent&)
+void TimelineComponent::mouseUp (const juce::MouseEvent& event)
 {
+    if (event.source.isTouch())
+    {
+        updateTouchPoint (event, false);
+        if (pinchingTimeline)
+        {
+            removeTouchPoint (event.source.getIndex());
+            pinchingTimeline = false;
+            touchGestureConsumed = true;
+            cancelEditingGesture();
+            if (activeTouchCount() == 0)
+            {
+                primaryTouchSource = -1;
+                touchGestureConsumed = false;
+            }
+            repaint();
+            return;
+        }
+        if (touchGestureConsumed)
+        {
+            removeTouchPoint (event.source.getIndex());
+            if (activeTouchCount() == 0)
+            {
+                primaryTouchSource = -1;
+                touchGestureConsumed = false;
+            }
+            return;
+        }
+        if (event.source.getIndex() == primaryTouchSource && touchPanPending)
+        {
+            const auto shouldSetPlayhead = touchTapSetsPlayhead && ! panningTimeline;
+            touchPanPending = false;
+            panningTimeline = false;
+            touchTapSetsPlayhead = false;
+            removeTouchPoint (event.source.getIndex());
+            if (activeTouchCount() == 0)
+                primaryTouchSource = -1;
+            if (shouldSetPlayhead)
+                setPlayheadFromX (event.position.x);
+            repaint();
+            return;
+        }
+
+        removeTouchPoint (event.source.getIndex());
+        if (activeTouchCount() == 0)
+            primaryTouchSource = -1;
+    }
+
     draggingPlayhead = false;
     if (draggingRange)
     {
@@ -1853,25 +2015,16 @@ void TimelineComponent::mouseExit (const juce::MouseEvent&)
 void TimelineComponent::mouseWheelMove (const juce::MouseEvent& event,
                                         const juce::MouseWheelDetails& details)
 {
-    const auto projectLength = audioEngine.getLength();
-    const auto baseLength = projectLength > 0.0
-        ? juce::jmax (30.0, std::ceil (projectLength / 30.0) * 30.0)
-        : 120.0;
-
     if (event.mods.isCtrlDown())
     {
         const auto anchorTime = timeAtX (event.position.x);
-        const auto oldLength = visibleLength();
         const auto normal = juce::jlimit (0.0, 1.0,
                                           (static_cast<double> (event.position.x) - trackHeaderWidth())
                                               / juce::jmax (1.0, static_cast<double> (getWidth() - trackHeaderWidth())));
         const auto zoomFactor = details.deltaY > 0.0f ? 1.18 : 1.0 / 1.18;
         timelineZoom = juce::jlimit (0.25, 16.0, timelineZoom * zoomFactor);
-        const auto newLength = visibleLength();
-        timelineViewStart = anchorTime - normal * newLength;
-        timelineViewStart = juce::jlimit (0.0, juce::jmax (0.0, baseLength - newLength),
-                                          timelineViewStart);
-        juce::ignoreUnused (oldLength);
+        timelineViewStart = anchorTime - normal * visibleLength();
+        clampTimelineViewStart();
         repaint();
         return;
     }
@@ -1880,8 +2033,7 @@ void TimelineComponent::mouseWheelMove (const juce::MouseEvent& event,
     {
         timelineViewStart -= static_cast<double> (details.deltaY) * visibleLength() * 0.22;
         timelineViewStart -= static_cast<double> (details.deltaX) * visibleLength() * 0.22;
-        timelineViewStart = juce::jlimit (0.0, juce::jmax (0.0, baseLength - visibleLength()),
-                                          timelineViewStart);
+        clampTimelineViewStart();
         repaint();
         return;
     }
@@ -2226,10 +2378,7 @@ void SpatialCanvas::paint (juce::Graphics& g)
                 juce::roundToInt (centre.y + 19.0f), 72, 16, juce::Justification::centred, false);
 
     const auto project = audioEngine.getProjectSnapshot();
-    const std::array<TextId, AudioEngine::trackCount> trackNames {
-        TextId::leadVocal, TextId::synth, TextId::drums, TextId::atmosphere, TextId::fxReturn
-    };
-    const std::array<juce::Colour, AudioEngine::trackCount> sourceColours {
+    const std::array<juce::Colour, 5> sourceColours {
         c.coral, c.blue, c.yellow, c.green, c.accent
     };
     for (int trackIndex = 0; trackIndex < audioEngine.getTrackCount(); ++trackIndex)
@@ -2242,7 +2391,7 @@ void SpatialCanvas::paint (juce::Graphics& g)
             continue;
 
         const auto source = sourcePoint (parameters);
-        const auto colour = trackIndex < AudioEngine::trackCount
+        const auto colour = trackIndex < static_cast<int> (sourceColours.size())
             ? sourceColours[static_cast<size_t> (trackIndex)]
             : juce::Colour::fromHSV (std::fmod (0.08f + trackIndex * 0.113f, 1.0f),
                                      0.62f, 0.94f, 1.0f);
@@ -2264,9 +2413,9 @@ void SpatialCanvas::paint (juce::Graphics& g)
         }
         g.setColour (c.muted);
         g.setFont (juce::FontOptions (10.0f));
-        const auto trackLabel = project->tracks[static_cast<size_t> (trackIndex)].name;
-        g.drawText (trackLabel.isNotEmpty() ? trackLabel
-                                            : localizer.text (trackNames[static_cast<size_t> (trackIndex)]),
+        const auto trackLabel = displayTrackName (
+            project->tracks[static_cast<size_t> (trackIndex)].name, trackIndex, localizer);
+        g.drawText (trackLabel,
                     juce::roundToInt (source.x + markerRadius + 5.0f),
                     juce::roundToInt (source.y - 10.0f), 94, 18,
                     juce::Justification::centredLeft, false);
@@ -2778,9 +2927,6 @@ void InspectorPanel::layoutRows (juce::Rectangle<int> area)
         case InspectorTab::spatial:
         {
             const auto project = audioEngine.getProjectSnapshot();
-            const std::array<TextId, AudioEngine::trackCount> trackNames {
-                TextId::leadVocal, TextId::synth, TextId::drums, TextId::atmosphere, TextId::fxReturn
-            };
             const auto selectedTrack = juce::jlimit (0, audioEngine.getTrackCount() - 1, state.selectedTrack);
             if (state.selectedSpatialRegionId != 0)
             {
@@ -2795,9 +2941,9 @@ void InspectorPanel::layoutRows (juce::Rectangle<int> area)
             }
             else
             {
-                selectionTitle.setText (project->tracks[static_cast<size_t> (selectedTrack)].name.isNotEmpty()
-                                            ? project->tracks[static_cast<size_t> (selectedTrack)].name
-                                            : localizer.text (trackNames[static_cast<size_t> (selectedTrack)]),
+                selectionTitle.setText (displayTrackName (
+                                            project->tracks[static_cast<size_t> (selectedTrack)].name,
+                                            selectedTrack, localizer),
                                         juce::dontSendNotification);
                 selectionSubtitle.setText (localizer.text (TextId::objectAudio), juce::dontSendNotification);
                 badge.setText ("OBJ " + juce::String (selectedTrack + 1).paddedLeft ('0', 2),
@@ -2871,14 +3017,10 @@ void InspectorPanel::layoutRows (juce::Rectangle<int> area)
         case InspectorTab::track:
         {
             const auto project = audioEngine.getProjectSnapshot();
-            const std::array<TextId, AudioEngine::trackCount> trackNames {
-                TextId::leadVocal, TextId::synth, TextId::drums, TextId::atmosphere, TextId::fxReturn
-            };
             const auto selectedTrack = juce::jlimit (0, audioEngine.getTrackCount() - 1, state.selectedTrack);
             const auto& selectedTrackData = project->tracks[static_cast<size_t> (selectedTrack)];
-            selectionTitle.setText (selectedTrackData.name.isNotEmpty()
-                                        ? selectedTrackData.name
-                                        : localizer.text (trackNames[static_cast<size_t> (selectedTrack)]),
+            selectionTitle.setText (displayTrackName (selectedTrackData.name, selectedTrack,
+                                                       localizer),
                                     juce::dontSendNotification);
             selectionSubtitle.setText ("Track " + juce::String (state.selectedTrack + 1),
                                        juce::dontSendNotification);
@@ -2914,13 +3056,10 @@ void InspectorPanel::setVisiblePage()
 MixerComponent::MixerComponent (Localizer& strings, AppState& appState, AudioEngine& engine)
     : localizer (strings), state (appState), audioEngine (engine)
 {
-    const std::array<double, 6> faderValues { -2.4, -5.1, -1.8, -8.6, -12.0, -0.8 };
-    const std::array<float, 6> levels { 0.78f, 0.59f, 0.88f, 0.40f, 0.36f, 0.84f };
-
     for (size_t i = 0; i < channels.size(); ++i)
     {
         auto& channel = channels[i];
-        const auto initialFader = i < faderValues.size() ? faderValues[i] : -12.0;
+        constexpr auto initialFader = 0.0;
         channel.value.setText (juce::String (initialFader, 1), juce::dontSendNotification);
         channel.value.setJustificationType (juce::Justification::centredRight);
         channel.value.setFont (juce::FontOptions (8.0f));
@@ -2933,10 +3072,9 @@ MixerComponent::MixerComponent (Localizer& strings, AppState& appState, AudioEng
         channel.pan.setSliderStyle (juce::Slider::LinearHorizontal);
         channel.pan.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         channel.pan.setRange (-100.0, 100.0, 1.0);
-        channel.pan.setValue (i == 1 ? -14.0 : i == 3 ? 28.0 : 0.0);
+        channel.pan.setValue (0.0);
         channel.mute.setClickingTogglesState (true);
         channel.solo.setClickingTogglesState (true);
-        channel.level = i < levels.size() ? levels[i] : 0.32f;
         channel.fader.onValueChange = [this, i]
         {
             const auto value = channels[i].fader.getValue();
@@ -2979,9 +3117,8 @@ void MixerComponent::refreshText()
     for (size_t i = 0; i < channels.size(); ++i)
     {
         if (i < static_cast<size_t> (activeTracks))
-            channels[i].name.setText (project->tracks[i].name.isNotEmpty()
-                                           ? project->tracks[i].name
-                                           : "Track " + juce::String (i + 1),
+            channels[i].name.setText (displayTrackName (project->tracks[i].name,
+                                                        static_cast<int> (i), localizer),
                                        juce::dontSendNotification);
         else if (i == channels.size() - 1)
             channels[i].name.setText (localizer.text (TextId::master), juce::dontSendNotification);
@@ -3032,7 +3169,7 @@ void MixerComponent::paint (juce::Graphics& g)
                                                 static_cast<float> (getHeight() - 40));
     g.setColour (c.background);
     g.fillRoundedRectangle (meterBounds, 3.0f);
-    const auto masterLevel = audioEngine.hasFile() ? audioEngine.getMasterMeter() : 0.78f;
+    const auto masterLevel = audioEngine.getMasterMeter();
     const std::array<float, 2> levels { masterLevel, masterLevel * 0.92f };
     for (size_t i = 0; i < levels.size(); ++i)
     {
@@ -3068,10 +3205,7 @@ void MixerComponent::paint (juce::Graphics& g)
         g.setColour (c.background);
         g.fillRoundedRectangle (meter, 1.0f);
         const auto isMaster = i == channelCount - 1;
-        const auto& channel = isMaster ? channels.back() : channels[static_cast<size_t> (i)];
-        const auto level = audioEngine.hasFile()
-            ? (isMaster ? audioEngine.getMasterMeter() : audioEngine.getTrackMeter (i))
-            : channel.level;
+        const auto level = isMaster ? audioEngine.getMasterMeter() : audioEngine.getTrackMeter (i);
         g.setColour (c.green);
         g.fillRoundedRectangle (meter.removeFromBottom (meter.getHeight() * juce::jlimit (0.0f, 1.0f, level)), 1.0f);
     }
@@ -3395,10 +3529,10 @@ MainComponent::MainComponent()
     tooltipWindow.setMillisecondsBeforeTipAppears (450);
     setOpaque (true);
 
-    brandLabel.setText ("0i  STUDIO", juce::dontSendNotification);
+    brandLabel.setText ("0i-Studio", juce::dontSendNotification);
     brandLabel.setFont (juce::FontOptions (16.0f));
     brandLabel.setJustificationType (juce::Justification::centredLeft);
-    projectLabel.setText ("Midnight Bloom", juce::dontSendNotification);
+    projectLabel.setText ({}, juce::dontSendNotification);
     projectLabel.setJustificationType (juce::Justification::centred);
     projectLabel.setFont (juce::FontOptions (12.0f));
     savedLabel.setJustificationType (juce::Justification::centredLeft);
@@ -3691,17 +3825,17 @@ MainComponent::MainComponent()
     });
 
    #if JUCE_ANDROID
-    juce::Logger::writeToLog ("0i Studio startup: UI constructed");
+    juce::Logger::writeToLog ("0i-Studio startup: UI constructed");
     const juce::Component::SafePointer<MainComponent> safeThis (this);
     juce::MessageManager::callAsync ([safeThis]
     {
         if (auto* component = safeThis.getComponent())
         {
-            juce::Logger::writeToLog ("0i Studio startup: initialising audio output");
+            juce::Logger::writeToLog ("0i-Studio startup: initialising audio output");
             const auto error = component->audioEngine.initialiseAudioDevice();
             juce::Logger::writeToLog (error.isEmpty()
-                ? "0i Studio startup: audio output ready"
-                : "0i Studio startup: audio output unavailable: " + error);
+                ? "0i-Studio startup: audio output ready"
+                : "0i-Studio startup: audio output unavailable: " + error);
         }
     });
    #endif
@@ -4328,6 +4462,13 @@ void MainComponent::refreshText()
     trackMenu.setButtonText (localizer.text (TextId::track));
     clipMenu.setButtonText (localizer.text (TextId::clip));
     viewMenu.setButtonText (localizer.text (TextId::view));
+    const auto untitledChinese = juce::String::fromUTF8 ("\u672a\u547d\u540d\u5de5\u7a0b");
+    const auto untitledEnglish = juce::String ("Untitled Project");
+    if (projectLabel.getText().isEmpty() || projectLabel.getText() == untitledChinese
+        || projectLabel.getText() == untitledEnglish)
+        projectLabel.setText (localizer.getLanguage() == Language::chinese
+                                  ? untitledChinese : untitledEnglish,
+                              juce::dontSendNotification);
     savedLabel.setText (localizer.text (TextId::saved), juce::dontSendNotification);
     chineseButton.setButtonText (juce::String::fromUTF8 ("中"));
     englishButton.setButtonText ("EN");
@@ -4527,6 +4668,7 @@ void MainComponent::showMobileMenu()
     menu.addItem (32, label ("English", "English"), true, state.language == Language::english);
     menu.addItem (33, label ("音频设备", "Audio device settings"));
     menu.addItem (34, label ("检查更新...", "Check for updates..."), ! updateCheckInProgress);
+    menu.addItem (35, label ("关于与联系方式", "About & contact"));
 
     const juce::Component::SafePointer<MainComponent> safeThis (this);
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&moreButton),
@@ -4590,6 +4732,7 @@ void MainComponent::showMobileMenu()
             }
             else if (result == 33) component->showAudioDeviceSettings();
             else if (result == 34) component->checkForUpdates (true);
+            else if (result == 35) component->showAboutAndContact();
         }
     });
 }
@@ -4602,6 +4745,20 @@ void MainComponent::showAudioDeviceSettings()
     selector->setSize (520, 420);
     juce::CallOutBox::launchAsynchronously (std::unique_ptr<juce::Component> (selector),
                                             settingsButton.getScreenBounds(), nullptr);
+}
+
+void MainComponent::showAboutAndContact()
+{
+    const auto chinese = localizer.getLanguage() == Language::chinese;
+    const auto title = chinese ? juce::String::fromUTF8 ("\u5173\u4e8e\u4e0e\u8054\u7cfb\u65b9\u5f0f")
+                               : juce::String ("About & contact");
+    auto message = juce::String ("0i-Studio\n")
+                 + (chinese ? juce::String::fromUTF8 ("\u7248\u672c ") : juce::String ("Version "))
+                 + JUCE_APPLICATION_VERSION_STRING + "\n\n"
+                 + (chinese ? juce::String::fromUTF8 ("\u8054\u7cfb\u65b9\u5f0f") : juce::String ("Contact"))
+                 + "\nQQ: 2224248204";
+    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
+                                             title, message, {}, this);
 }
 
 void MainComponent::checkForUpdates (bool showFeedback)
@@ -4717,6 +4874,7 @@ void MainComponent::showFileMenu()
     menu.addSeparator();
     menu.addItem (4, text ("音频设备设置...", "Audio device settings..."));
     menu.addItem (5, text ("检查更新...", "Check for updates..."), ! updateCheckInProgress);
+    menu.addItem (6, text ("关于与联系方式...", "About & contact..."));
 
     const juce::Component::SafePointer<MainComponent> safeThis (this);
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&fileMenu),
@@ -4729,6 +4887,7 @@ void MainComponent::showFileMenu()
             else if (result == 3) component->showExportPanel();
             else if (result == 4) component->showAudioDeviceSettings();
             else if (result == 5) component->checkForUpdates (true);
+            else if (result == 6) component->showAboutAndContact();
         }
     });
 }
@@ -4818,16 +4977,12 @@ void MainComponent::showTrackMenu()
     menu.addItem (5, text ("重置轨道混音", "Reset track mix"));
     menu.addSeparator();
     juce::PopupMenu tracksMenu;
-    const std::array<TextId, AudioEngine::trackCount> names {
-        TextId::leadVocal, TextId::synth, TextId::drums, TextId::atmosphere, TextId::fxReturn
-    };
     for (int index = 0; index < trackCount; ++index)
         tracksMenu.addItem (100 + index,
                             (chinese ? juce::String::fromUTF8 ("轨道 ") : juce::String ("Track "))
                                 + juce::String (index + 1) + "  "
-                                + (index < AudioEngine::trackCount
-                                       ? localizer.text (names[static_cast<size_t> (index)])
-                                       : project->tracks[static_cast<size_t> (index)].name),
+                                + displayTrackName (project->tracks[static_cast<size_t> (index)].name,
+                                                    index, localizer),
                             true, index == trackIndex);
     menu.addSubMenu (text ("选择轨道", "Select track"), tracksMenu);
 
@@ -5449,7 +5604,7 @@ void MainComponent::chooseExportDestination (AudioEngine::ExportSettings setting
 {
     auto suggestedName = projectLabel.getText().trim();
     if (suggestedName.isEmpty())
-        suggestedName = "0i Studio Mix";
+        suggestedName = "0i-Studio Mix";
     suggestedName = juce::File::createLegalFileName (suggestedName) + ".wav";
 
     fileChooser = std::make_unique<juce::FileChooser> (localizer.text (TextId::exportAudio),

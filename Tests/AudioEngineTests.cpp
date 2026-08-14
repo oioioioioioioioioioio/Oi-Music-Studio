@@ -144,6 +144,9 @@ int main (int argc, char* argv[])
 
     oi::AudioEngine engine (false);
     engine.prepareToPlay (256, sampleRate);
+    for (int index = engine.getTrackCount(); index < 4; ++index)
+        if (! engine.addTrack())
+            return fail ("could not create tracks for multitrack tests");
     const auto firstId = engine.addFileToTrack (firstFile.getFile(), 0, 0.0);
     const auto secondId = engine.addFileToTrack (secondFile.getFile(), 1, 0.0);
     if (! firstId.has_value() || ! secondId.has_value())
@@ -225,6 +228,9 @@ int main (int argc, char* argv[])
 
     oi::AudioEngine regionEngine (false);
     regionEngine.prepareToPlay (256, sampleRate);
+    for (int index = regionEngine.getTrackCount(); index < 3; ++index)
+        if (! regionEngine.addTrack())
+            return fail ("could not create tracks for spatial-region tests");
     const auto regionClipId = regionEngine.addFileToTrack (spatialFile.getFile(), 0, 0.0);
     if (! regionClipId.has_value())
         return fail ("could not import the spatial-region test source");
@@ -648,18 +654,22 @@ int main (int argc, char* argv[])
         return fail ("7.1.4 WAV export did not preserve height spatial routing");
 
     oi::AudioEngine trackEngine (false);
-    if (trackEngine.getTrackCount() != oi::AudioEngine::trackCount)
+    if (trackEngine.getTrackCount() != oi::AudioEngine::defaultTrackCount)
         return fail ("new projects did not start with the default track count");
+    const auto emptyProject = trackEngine.getProjectSnapshot();
+    if (trackEngine.hasFile() || trackEngine.getClipCount() != 0
+        || emptyProject->tracks[0].name != "Track 1")
+        return fail ("new projects did not start with one empty generic track");
     if (! trackEngine.addTrack ("Dialogue")
-        || trackEngine.getTrackCount() != oi::AudioEngine::trackCount + 1)
+        || trackEngine.getTrackCount() != oi::AudioEngine::defaultTrackCount + 1)
         return fail ("adding a track did not update the active track count");
-    if (trackEngine.getProjectSnapshot()->tracks[oi::AudioEngine::trackCount].name != "Dialogue")
+    if (trackEngine.getProjectSnapshot()->tracks[oi::AudioEngine::defaultTrackCount].name != "Dialogue")
         return fail ("added track name was not stored in project state");
-    if (! trackEngine.renameTrack (oi::AudioEngine::trackCount, "ADR")
-        || trackEngine.getProjectSnapshot()->tracks[oi::AudioEngine::trackCount].name != "ADR")
+    if (! trackEngine.renameTrack (oi::AudioEngine::defaultTrackCount, "ADR")
+        || trackEngine.getProjectSnapshot()->tracks[oi::AudioEngine::defaultTrackCount].name != "ADR")
         return fail ("renaming a track did not update project state");
     if (! trackEngine.undo()
-        || trackEngine.getProjectSnapshot()->tracks[oi::AudioEngine::trackCount].name != "Dialogue")
+        || trackEngine.getProjectSnapshot()->tracks[oi::AudioEngine::defaultTrackCount].name != "Dialogue")
         return fail ("track rename was not undoable");
 
     std::cout << "PASS: multitrack edit/mix, playback speed, spatial rendering, and WAV export\n";

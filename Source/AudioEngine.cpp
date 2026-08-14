@@ -393,11 +393,7 @@ AudioEngine::AudioEngine (bool initialiseAudioDevice)
 {
     formatManager.registerBasicFormats();
     auto initialProject = std::make_shared<ProjectState>();
-    const std::array<const char*, trackCount> defaultNames {
-        "Lead Vocal", "Synth", "Drums", "Atmosphere", "FX Return"
-    };
-    for (int index = 0; index < trackCount; ++index)
-        initialProject->tracks[static_cast<size_t> (index)].name = defaultNames[static_cast<size_t> (index)];
+    initialProject->tracks[0].name = "Track 1";
     std::atomic_store (&projectState, ProjectPtr (std::move (initialProject)));
     spatialVoices = std::make_unique<SpatialVoiceStates>();
 
@@ -659,11 +655,7 @@ void AudioEngine::clear()
     undoHistory.clear();
     redoHistory.clear();
     auto initialProject = std::make_shared<ProjectState>();
-    const std::array<const char*, trackCount> defaultNames {
-        "Lead Vocal", "Synth", "Drums", "Atmosphere", "FX Return"
-    };
-    for (int index = 0; index < trackCount; ++index)
-        initialProject->tracks[static_cast<size_t> (index)].name = defaultNames[static_cast<size_t> (index)];
+    initialProject->tracks[0].name = "Track 1";
     std::atomic_store (&projectState, ProjectPtr (std::move (initialProject)));
     sendChangeMessage();
 }
@@ -998,7 +990,7 @@ juce::Result AudioEngine::exportProjectWav (std::shared_ptr<const ProjectState> 
                              .withSampleRate (settings.sampleRate)
                              .withChannelLayout (exportChannelLayout (settings.channelCount))
                              .withBitsPerSample (settings.bitsPerSample)
-                             .withMetadata (juce::WavAudioFormat::riffInfoSoftware, "0i Studio");
+                             .withMetadata (juce::WavAudioFormat::riffInfoSoftware, "0i-Studio");
     auto writer = format.createWriterFor (stream, writerOptions);
     if (writer == nullptr)
         return juce::Result::fail ("The WAV writer could not use the selected settings.");

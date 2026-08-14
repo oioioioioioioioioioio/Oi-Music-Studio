@@ -45,15 +45,15 @@ private:
 class OiStudioApplication final : public juce::JUCEApplication
 {
 public:
-    const juce::String getApplicationName() override { return "0i Studio"; }
+    const juce::String getApplicationName() override { return "0i-Studio"; }
     const juce::String getApplicationVersion() override { return JUCE_APPLICATION_VERSION_STRING; }
     bool moreThanOneInstanceAllowed() override { return true; }
 
     void initialise (const juce::String&) override
     {
-        juce::Logger::writeToLog ("0i Studio startup: application initialise");
+        juce::Logger::writeToLog ("0i-Studio startup: application initialise");
         mainWindow = std::make_unique<MainWindow> (getApplicationName());
-        juce::Logger::writeToLog ("0i Studio startup: main window ready");
+        juce::Logger::writeToLog ("0i-Studio startup: main window ready");
     }
 
     void shutdown() override

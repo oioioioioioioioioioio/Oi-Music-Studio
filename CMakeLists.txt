@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(OiMusicEditor VERSION 0.1.5 LANGUAGES CXX)
+project(OiMusicEditor VERSION 0.1.6 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -13,12 +13,14 @@ endif()
 add_subdirectory(external/JUCE)
 
 juce_add_gui_app(OiMusicEditor
-    PRODUCT_NAME "0i Studio"
+    PRODUCT_NAME "0i-Studio"
     VERSION "${PROJECT_VERSION}"
     COMPANY_NAME "0i"
     BUNDLE_ID "studio.0i.musiceditor"
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/logo.jpg"
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/logo.jpg"
     MICROPHONE_PERMISSION_ENABLED TRUE
-    MICROPHONE_PERMISSION_TEXT "0i Studio uses audio input when recording is enabled."
+    MICROPHONE_PERMISSION_TEXT "0i-Studio uses audio input when recording is enabled."
 )
 
 juce_generate_juce_header(OiMusicEditor)
@@ -62,7 +64,7 @@ include(CTest)
 
 if (BUILD_TESTING)
     juce_add_console_app(OiMusicEditorTests
-        PRODUCT_NAME "0i Studio Audio Engine Tests"
+        PRODUCT_NAME "0i-Studio Audio Engine Tests"
     )
 
     target_sources(OiMusicEditorTests PRIVATE

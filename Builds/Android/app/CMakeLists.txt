@@ -70,12 +70,12 @@ endif()
 
 # JUCE's Android activity loads this exact shared-library name.
 juce_add_gui_app(juce_jni
-    PRODUCT_NAME "0i Studio"
-    VERSION "0.1.5"
+    PRODUCT_NAME "0i-Studio"
+    VERSION "0.1.6"
     COMPANY_NAME "0i"
     BUNDLE_ID "studio.oi.musiceditor"
     MICROPHONE_PERMISSION_ENABLED TRUE
-    MICROPHONE_PERMISSION_TEXT "0i Studio uses the microphone only when recording is enabled."
+    MICROPHONE_PERMISSION_TEXT "0i-Studio uses the microphone only when recording is enabled."
 )
 
 juce_generate_juce_header(juce_jni)
@@ -102,7 +102,7 @@ target_compile_definitions(juce_jni PRIVATE
     JUCE_CONTENT_SHARING=1
     JUCE_USE_MP3AUDIOFORMAT=1
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:juce_jni,JUCE_PRODUCT_NAME>"
-    JUCE_APPLICATION_VERSION_STRING="0.1.5"
+    JUCE_APPLICATION_VERSION_STRING="0.1.6"
 )
 
 target_compile_options(juce_jni PRIVATE
@@ -110,6 +110,13 @@ target_compile_options(juce_jni PRIVATE
     $<$<PLATFORM_ID:Android>:-Wno-unguarded-availability>
     $<$<PLATFORM_ID:Android>:-Wno-error=unguarded-availability>
 )
+
+# The Windows-hosted NDK 28 Clang frontend can crash when several large JUCE
+# translation units compile concurrently, especially for armeabi-v7a.
+if (CMAKE_GENERATOR MATCHES "Ninja")
+    set_property(GLOBAL PROPERTY JOB_POOLS oi_android_compile_pool=1)
+    set_property(TARGET juce_jni PROPERTY JOB_POOL_COMPILE oi_android_compile_pool)
+endif()
 
 target_link_libraries(juce_jni PRIVATE
     juce::juce_audio_utils

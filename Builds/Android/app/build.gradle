@@ -15,8 +15,8 @@ android {
         applicationId 'studio.oi.musiceditor'
         minSdk 24
         targetSdk 35
-        versionCode 6
-        versionName '0.1.5'
+        versionCode 7
+        versionName '0.1.6'
 
         externalNativeBuild {
             cmake {
@@ -71,4 +71,15 @@ android {
             useLegacyPackaging false
         }
     }
+}
+
+def oiLauncherIcon = tasks.register('prepareOiLauncherIcon', Copy) {
+    from file('../../../logo.jpg')
+    into file("$buildDir/generated/oiLauncherIcon/drawable-nodpi")
+    rename { 'logo.jpg' }
+}
+
+android.sourceSets.main.res.srcDir file("$buildDir/generated/oiLauncherIcon")
+tasks.named('preBuild').configure {
+    dependsOn oiLauncherIcon
 }

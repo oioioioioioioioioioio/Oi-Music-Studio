@@ -17,9 +17,9 @@ class AudioEngine final : public juce::AudioSource,
                           public juce::ChangeBroadcaster
 {
 public:
-    // The first five tracks are created for a new project. More tracks can be
-    // added up to this limit without changing the real-time render buffers.
-    static constexpr int trackCount = 5;
+    // New projects start with one empty track. Users can add more tracks up to
+    // this limit without changing the real-time render buffers.
+    static constexpr int defaultTrackCount = 1;
     static constexpr int maximumTrackCount = 12;
     static constexpr int maximumOutputChannels = 12;
     static constexpr int maximumBinauralDelaySamples = 512;
@@ -70,7 +70,7 @@ public:
     struct ProjectState
     {
         std::array<Track, maximumTrackCount> tracks;
-        int activeTrackCount = trackCount;
+        int activeTrackCount = defaultTrackCount;
         double length = 0.0;
         float masterGainDb = 0.0f;
     };

@@ -164,15 +164,19 @@ private:
         TextId name = TextId::tracks;
         juce::String role { "ST" };
         juce::Colour colour { 0xff6b9ff1 };
-        float level = 0.45f;
-        std::vector<std::pair<float, float>> clips;
+    };
+
+    struct TouchPoint
+    {
+        int sourceIndex = -1;
+        juce::Point<float> position;
     };
 
     void timerCallback() override;
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
-    void drawWaveform (juce::Graphics&, juce::Rectangle<float>, juce::Colour, int seed) const;
     void drawClipThumbnail (juce::Graphics&, juce::Rectangle<float>,
                             const AudioEngine::Clip&) const;
+    [[nodiscard]] double timelineExtent() const noexcept;
     [[nodiscard]] double visibleLength() const noexcept;
     [[nodiscard]] juce::Rectangle<int> timelineArea() const;
     [[nodiscard]] int trackHeaderWidth() const noexcept;
@@ -202,6 +206,13 @@ private:
                                        uint64_t clipId, double duration,
                                        double& snappedStart) const noexcept;
     void updateDropPreview (juce::Point<float> localPosition);
+    void updateTouchPoint (const juce::MouseEvent&, bool addIfMissing);
+    void removeTouchPoint (int sourceIndex) noexcept;
+    [[nodiscard]] int activeTouchCount() const noexcept;
+    void cancelEditingGesture() noexcept;
+    void beginPinchGesture();
+    void updatePinchGesture();
+    void clampTimelineViewStart() noexcept;
 
     Localizer& localizer;
     AppState& state;
@@ -227,6 +238,19 @@ private:
     uint64_t rangeHitRegionId = 0;
     double timelineZoom = 1.0;
     double timelineViewStart = 0.0;
+    std::array<TouchPoint, 2> activeTouches;
+    int primaryTouchSource = -1;
+    bool touchPanPending = false;
+    bool panningTimeline = false;
+    bool touchTapSetsPlayhead = false;
+    bool pinchingTimeline = false;
+    bool touchGestureConsumed = false;
+    juce::Point<float> touchPanOrigin;
+    double touchPanViewStart = 0.0;
+    float pinchInitialDistance = 1.0f;
+    double pinchInitialZoom = 1.0;
+    double pinchAnchorTime = 0.0;
+    double pinchAnchorNormal = 0.5;
     bool snappingEnabled = true;
     int dragDropTrack = -1;
     double dragDropTime = 0.0;
@@ -349,7 +373,6 @@ private:
         juce::Label name, value;
         juce::Slider fader, pan;
         juce::TextButton mute { "M" }, solo { "S" };
-        float level = 0.5f;
     };
 
     Localizer& localizer;
@@ -433,6 +456,7 @@ private:
     void chooseMediaDirectory();
     void importAudioFile (const juce::File&);
     void showAudioDeviceSettings();
+    void showAboutAndContact();
     void checkForUpdates (bool showFeedback);
     void showFileMenu();
     void showEditMenu();
