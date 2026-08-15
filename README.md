@@ -2,28 +2,29 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Native C++20/JUCE desktop and Android application for a professional multitrack
-and spatial audio editor.
+Native C++20/JUCE audio editor prototype for Windows and Android. The current
+build focuses on multitrack clip editing, adjustable spatial-audio experiments,
+playback controls, and WAV export.
 
 Current release: **0.1.10** (`versionCode 11` on Android).
 
-## Current milestone
+## Current features
 
-- Professional Edit, Spatial, and Mix workspaces
+- Edit, Spatial, and Mix workspace views
 - Dark/light themes and runtime Chinese/English switching
 - Adjustable browser, inspector, track, and mixer layout dimensions
-- One empty starting track, with user-added, nameable, and renameable tracks (up to 12), real waveform thumbnails, and clip metadata
+- One empty starting track, with user-added, nameable, and renameable tracks (up to 12), waveform thumbnails, and clip metadata
 - Explicit multi-file/folder media import, media-browser drag-and-drop to any track, time-ruler seeking, clip selection, splitting, drag/cross-track move, duplication, deletion, undo, and redo
 - Same-track clip-edge snapping with a visible guide and temporary `Alt` bypass
 - Timeline navigation: on touch screens, drag the ruler or empty lane with one finger to pan and pinch with two fingers to zoom; on desktop, `Ctrl+wheel` zooms, `Alt+wheel` scrolls horizontally, and `Space` toggles play/pause
 - The timeline header `+` button opens the same named-track dialog as the Track menu
-- Real-time multitrack mixing with per-track gain, pan, mute, solo, and meters
+- Basic multitrack mixing controls for per-track gain, pan, mute, solo, and meters
 - Clip gain, master gain, transport seek/loop, and variable-speed playback
-- Per-track spatial rendering with enable/bypass, radius, azimuth, elevation, orbit speed, spread, directivity, attenuation curves, and optional air absorption
-- Clip-local spatial and relative-volume automation over a continuous track-level 3D bed, with adjustable smooth entry/exit transitions and timeline envelopes; on landscape phones, a fixed top-bar clip toolbar exposes the range tool directly without covering the waveform
-- Mobile parameter values are display-only and the complete parameter row rejects text focus, so touching labels, values, or sliders cannot open the soft keyboard
-- Offline PCM WAV export at 44.1/48/88.2/96 kHz and 16/24/32-bit, with Stereo, 5.1, 7.1, 5.1.4, and 7.1.4 speaker layouts
-- Bilingual GitHub Release update checks on Windows and Android, with in-app APK download, SHA-256/package/signature validation, installer handoff, and a manual menu action
+- Experimental per-track spatial controls and rendering for enable/bypass, radius, azimuth, elevation, orbit speed, spread, directivity, attenuation curves, and optional air absorption
+- Clip-range spatial and relative-volume adjustments with configurable entry/exit transitions and timeline envelopes; on landscape phones, the range tool remains in the fixed top toolbar instead of covering the waveform
+- Mobile parameter values are display-only and parameter rows do not accept text focus, so touching labels, values, or sliders cannot open the soft keyboard
+- PCM WAV export options for 44.1/48/88.2/96 kHz, 16/24/32-bit, and Stereo, 5.1, 7.1, 5.1.4, or 7.1.4 layouts
+- Chinese/English GitHub Release update checks on Windows and Android, with in-app APK download and package validation on Android
 
 ### Online updates
 
@@ -44,7 +45,7 @@ selects its own package:
 
 ### Menu and media browser
 
-The top menus are functional editing entry points rather than placeholders:
+The menus currently expose these actions:
 
 - **File** imports audio, changes the media folder, opens export/audio-device settings, checks for updates, and shows contact information.
 - **Edit** provides undo/redo, clip duplication/deletion, playhead splitting, and select/range/split tools.
@@ -52,13 +53,25 @@ The top menus are functional editing entry points rather than placeholders:
 - **Clip** splits, duplicates, deletes, resets clip gain, removes a selected spatial region, and moves a clip to another track.
 - **View** switches Edit/Spatial/Mix workspaces, toggles panels, opens layout controls, and changes theme/language.
 
-The left media browser has Project, Local, and Spatial Presets pages. It starts empty and only lists files or folders explicitly imported by the user; it never scans a fixed drive. Imported media can be dragged directly to a chosen track or double-clicked to add it at the playhead. Project items locate clips in the timeline, while presets apply a complete spatial parameter set to the selected track or spatial region. Search and refresh apply to the active page.
+The left media browser has Project, Local, and Spatial Presets pages. It starts empty and only lists files or folders explicitly imported by the user; it never scans a fixed drive. Imported media can be dragged directly to a chosen track or double-clicked to add it at the playhead. Project items locate clips in the timeline, while presets apply a saved spatial parameter set to the selected track or spatial region. Search and refresh apply to the active page.
 
-The current JUCE reader path is verified for WAV, AIFF, FLAC, OGG, and MP3. M4A files can be listed by the browser, but AAC/M4A decoding requires an additional codec backend; those files currently show the normal unsupported-format warning on import.
+The current JUCE reader can import WAV, AIFF, FLAC, OGG, and MP3. M4A files can be listed by the browser, but AAC/M4A decoding requires an additional codec backend; those files currently show the normal unsupported-format warning on import.
 
 Contact is available in **File > About & contact** on Windows and **More > About & contact** on Android: QQ 2224248204.
 
-The spatial renderer is a real-time speaker-object panner. On stereo devices, it uses deterministic pseudo-binaural interaural delay and head-shadow filtering, with rear/elevation spectral cues; without a measured HRTF/SOFA dataset, stereo still cannot guarantee reliable front/rear or vertical localisation. On 4.0, 5.0, 5.1, 6.1, 7.1, 5.1.4, and 7.1.4 output configurations, object position is distributed across the corresponding speaker field. Distance attenuates level, elevation selects height speakers when available, orbit speed supports -360 to +360 degrees per timeline second, directivity narrows the speaker distribution, and spread retains controlled source width in stereo. The range tool creates local spatial and relative-gain overrides; independent DSP paths are crossfaded sample by sample with a smoothstep envelope while sharing the timeline orbit phase, so the base 3D render remains continuous outside each region. The canvas displays the active device layout, current orbit phase, speed, and seconds per revolution. Orbit follows timeline time, so changing playback speed changes its wall-clock rotation rate. Offline WAV export shares this renderer and writes the selected speaker layout without changing live playback state. The current engine decodes imported audio into memory and uses linear resampling for playback speed, so speed changes also change pitch. Pitch-lock controls, recording, effects, pitch-preserving time stretch, Doppler processing, listener head tracking, and measured HRTF rendering still require dedicated DSP backends.
+The spatial-audio implementation is experimental. It is a speaker-object panner,
+not a measured binaural engine. On stereo devices it uses simplified interaural
+delay, head-shadow filtering, and rear/elevation spectral cues. These cues may
+create a sense of movement, but without a measured HRTF/SOFA dataset they cannot
+guarantee front/rear or vertical localisation. On 4.0, 5.0, 5.1, 6.1, 7.1,
+5.1.4, and 7.1.4 outputs, the panner distributes the source across the available
+speaker field. Distance, elevation, orbit speed, directivity, and spread adjust
+that distribution. The range tool applies local spatial and relative-gain values,
+with a smoothstep crossfade between DSP paths. Orbit follows timeline time, so
+playback speed also changes the wall-clock rotation rate. WAV export reuses the
+same renderer. Playback speed currently uses linear resampling and therefore also
+changes pitch. Pitch locking, recording, effects, pitch-preserving time stretch,
+Doppler processing, head tracking, and measured HRTF rendering are not implemented.
 
 ## Build on Windows
 
