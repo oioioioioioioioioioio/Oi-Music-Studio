@@ -71,7 +71,7 @@ endif()
 # JUCE's Android activity loads this exact shared-library name.
 juce_add_gui_app(juce_jni
     PRODUCT_NAME "0i-Studio"
-    VERSION "0.1.12"
+    VERSION "0.1.13"
     COMPANY_NAME "0i"
     BUNDLE_ID "studio.oi.musiceditor"
     MICROPHONE_PERMISSION_ENABLED TRUE
@@ -102,7 +102,7 @@ target_compile_definitions(juce_jni PRIVATE
     JUCE_CONTENT_SHARING=1
     JUCE_USE_MP3AUDIOFORMAT=1
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:juce_jni,JUCE_PRODUCT_NAME>"
-    JUCE_APPLICATION_VERSION_STRING="0.1.12"
+    JUCE_APPLICATION_VERSION_STRING="0.1.13"
 )
 
 target_compile_options(juce_jni PRIVATE

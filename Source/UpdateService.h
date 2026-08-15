@@ -30,6 +30,8 @@ struct UpdateDownloadResult
 
 namespace update_detail
 {
+enum class ResumeResponseAction { append, restart, reject };
+
 struct DownloadCopyResult
 {
     juce::int64 bytesWritten = 0;
@@ -42,6 +44,11 @@ struct DownloadCopyResult
                                                       juce::OutputStream& output,
                                                       juce::int64 expectedSize,
                                                       juce::int64 maximumSize);
+[[nodiscard]] ResumeResponseAction classifyResumeResponse (
+    int statusCode,
+    const juce::String& contentRange,
+    juce::int64 requestedOffset,
+    juce::int64 expectedTotalSize);
 }
 
 class UpdateService final

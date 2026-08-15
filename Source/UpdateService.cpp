@@ -19,6 +19,7 @@ constexpr auto releasesUrl =
 constexpr auto trustedDownloadPrefix =
     "https://github.com/oioioioioioioioioioio/Oi-Music-Studio/releases/";
 constexpr juce::int64 maximumPackageBytes = 512LL * 1024LL * 1024LL;
+constexpr int maximumDownloadAttempts = 4;
 
 std::vector<int> parseVersion (juce::String version)
 {
@@ -86,6 +87,54 @@ bool isTrustedPackageUrl (const juce::String& url)
     return false;
    #endif
 }
+
+bool parseNonNegativeInteger (const juce::String& text, juce::int64& value)
+{
+    const auto token = text.trim();
+    if (token.isEmpty() || token.containsOnly ("0123456789") == false)
+        return false;
+
+    value = token.getLargeIntValue();
+    return value >= 0;
+}
+
+bool isExpectedContentRange (const juce::String& header,
+                             juce::int64 requestedOffset,
+                             juce::int64 expectedTotalSize)
+{
+    const auto value = header.trim();
+    if (! value.startsWithIgnoreCase ("bytes "))
+        return false;
+
+    const auto rangeAndTotal = value.substring (6).trim();
+    const auto slash = rangeAndTotal.indexOfChar ('/');
+    if (slash <= 0)
+        return false;
+
+    const auto range = rangeAndTotal.substring (0, slash).trim();
+    const auto totalToken = rangeAndTotal.substring (slash + 1).trim();
+    const auto dash = range.indexOfChar ('-');
+    if (dash <= 0)
+        return false;
+
+    juce::int64 first = 0;
+    juce::int64 last = 0;
+    if (! parseNonNegativeInteger (range.substring (0, dash), first)
+        || ! parseNonNegativeInteger (range.substring (dash + 1), last)
+        || first != requestedOffset || last < first)
+        return false;
+
+    if (totalToken == "*")
+        return expectedTotalSize <= 0;
+
+    juce::int64 total = 0;
+    if (! parseNonNegativeInteger (totalToken, total)
+        || total <= last
+        || (expectedTotalSize > 0 && total != expectedTotalSize))
+        return false;
+
+    return true;
+}
 }
 
 update_detail::DownloadCopyResult update_detail::copyDownloadStream (
@@ -134,6 +183,33 @@ update_detail::DownloadCopyResult update_detail::copyDownloadStream (
         result.error = "The downloaded update package size does not match the release";
 
     return result;
+}
+
+update_detail::ResumeResponseAction update_detail::classifyResumeResponse (
+    int statusCode,
+    const juce::String& contentRange,
+    juce::int64 requestedOffset,
+    juce::int64 expectedTotalSize)
+{
+    if (requestedOffset < 0 || expectedTotalSize < 0)
+        return ResumeResponseAction::reject;
+
+    if (requestedOffset == 0)
+    {
+        if (statusCode == 200)
+            return ResumeResponseAction::append;
+
+        return statusCode == 206
+                   && isExpectedContentRange (contentRange, 0, expectedTotalSize)
+            ? ResumeResponseAction::append : ResumeResponseAction::reject;
+    }
+
+    if (statusCode == 200)
+        return ResumeResponseAction::restart;
+
+    return statusCode == 206
+               && isExpectedContentRange (contentRange, requestedOffset, expectedTotalSize)
+        ? ResumeResponseAction::append : ResumeResponseAction::reject;
 }
 
 bool UpdateService::isVersionNewer (const juce::String& candidate,
@@ -219,14 +295,13 @@ UpdateCheckResult UpdateService::checkLatest (const juce::String& currentVersion
     }
 
     if (result.downloadUrl.isEmpty())
-   #if JUCE_ANDROID
     {
-        result.error = "The release does not contain a compatible Android package";
+        // Platform-only releases should not advertise an incompatible package.
+        result.latestVersion = currentVersion;
+        result.releaseUrl = releasesPage();
+        result.state = UpdateCheckResult::State::upToDate;
         return result;
     }
-   #else
-        result.downloadUrl = result.releaseUrl;
-   #endif
 
     result.state = isVersionNewer (result.latestVersion, currentVersion)
                      ? UpdateCheckResult::State::updateAvailable
@@ -252,28 +327,6 @@ UpdateDownloadResult UpdateService::downloadPackage (const juce::String& downloa
         return result;
     }
 
-    int statusCode = 0;
-    const auto options = juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
-        .withConnectionTimeoutMs (15000)
-        .withNumRedirectsToFollow (5)
-        .withStatusCode (&statusCode)
-        .withExtraHeaders ("Accept: application/octet-stream\r\n"
-                           "User-Agent: 0i-Studio-Updater\r\n");
-    auto input = juce::URL (downloadUrl).createInputStream (options);
-    if (input == nullptr || statusCode < 200 || statusCode >= 300)
-    {
-        result.error = statusCode > 0 ? "Download failed with HTTP " + juce::String (statusCode)
-                                      : juce::String ("Could not connect to the update server");
-        return result;
-    }
-
-    const auto reportedSize = input->getTotalLength();
-    if (reportedSize > maximumPackageBytes)
-    {
-        result.error = "The update package is too large";
-        return result;
-    }
-
     auto safeVersion = latestVersion.trim().retainCharacters ("0123456789.-");
     if (safeVersion.isEmpty())
         safeVersion = "latest";
@@ -295,45 +348,138 @@ UpdateDownloadResult UpdateService::downloadPackage (const juce::String& downloa
    #endif
     const auto packageFile = updateDirectory.getChildFile (packageName);
     const auto partialFile = packageFile.getSiblingFile (packageFile.getFileName() + ".part");
-    partialFile.deleteFile();
     packageFile.deleteFile();
 
-    const juce::ScopeGuard removePartialFile { [partialFile] { partialFile.deleteFile(); } };
-    auto fail = [] (juce::String message)
+    if ((expectedSize > 0 && partialFile.getSize() > expectedSize)
+        || partialFile.getSize() > maximumPackageBytes
+        || (expectedSize == 0 && partialFile.existsAsFile()))
+        partialFile.deleteFile();
+
+    auto fail = [&partialFile, expectedSize] (juce::String message, int attempts)
     {
         UpdateDownloadResult failure;
-        failure.error = std::move (message);
+        const auto downloaded = partialFile.existsAsFile() ? partialFile.getSize() : 0;
+        failure.error = std::move (message)
+                      + " (downloaded " + juce::String (downloaded)
+                      + (expectedSize > 0 ? " of " + juce::String (expectedSize) : juce::String())
+                      + " bytes after " + juce::String (attempts)
+                      + (attempts == 1 ? " attempt)" : " attempts)");
         return failure;
     };
 
-    auto output = partialFile.createOutputStream();
-    if (output == nullptr)
-        return fail ("Could not create the update package file");
+    juce::String lastError = "The update package download did not complete";
+    auto attempts = 0;
+    auto downloadComplete = expectedSize > 0 && partialFile.getSize() == expectedSize;
 
-    const auto copyResult = update_detail::copyDownloadStream (
-        *input, *output, expectedSize, maximumPackageBytes);
-    if (! copyResult.succeeded())
-        return fail (copyResult.error);
+    while (! downloadComplete && attempts < maximumDownloadAttempts)
+    {
+        ++attempts;
+        auto offset = partialFile.existsAsFile() ? partialFile.getSize() : 0;
+        if (expectedSize > 0 && offset > expectedSize)
+        {
+            partialFile.deleteFile();
+            offset = 0;
+        }
 
-    output->flush();
-    if (output->getStatus().failed())
-        return fail ("Could not finish writing the update package: "
-                     + output->getStatus().getErrorMessage());
-    output.reset();
+        auto requestHeaders = juce::String ("Accept: application/octet-stream\r\n"
+                                            "User-Agent: 0i-Studio-Updater\r\n");
+        if (offset > 0)
+            requestHeaders += "Range: bytes=" + juce::String (offset) + "-\r\n";
+
+        int statusCode = 0;
+        juce::StringPairArray responseHeaders;
+        const auto options = juce::URL::InputStreamOptions (
+                                 juce::URL::ParameterHandling::inAddress)
+            .withConnectionTimeoutMs (15000)
+            .withNumRedirectsToFollow (5)
+            .withStatusCode (&statusCode)
+            .withResponseHeaders (&responseHeaders)
+            .withExtraHeaders (requestHeaders);
+        auto input = juce::URL (downloadUrl).createInputStream (options);
+        if (input == nullptr)
+        {
+            lastError = statusCode > 0
+                ? "Download failed with HTTP " + juce::String (statusCode)
+                : juce::String ("Could not connect to the update server");
+            continue;
+        }
+
+        const auto responseAction = update_detail::classifyResumeResponse (
+            statusCode, responseHeaders.getValue ("Content-Range", {}),
+            offset, expectedSize);
+        if (responseAction == update_detail::ResumeResponseAction::reject)
+        {
+            lastError = "The update server returned an invalid resume response (HTTP "
+                      + juce::String (statusCode) + ")";
+            continue;
+        }
+
+        if (responseAction == update_detail::ResumeResponseAction::restart)
+        {
+            if (! partialFile.deleteFile() && partialFile.existsAsFile())
+                return fail ("Could not restart the partial update download", attempts);
+            offset = 0;
+        }
+
+        const auto reportedSize = input->getTotalLength();
+        if (reportedSize > 0 && offset + reportedSize > maximumPackageBytes)
+        {
+            partialFile.deleteFile();
+            return fail ("The update package is too large", attempts);
+        }
+
+        auto output = std::make_unique<juce::FileOutputStream> (partialFile);
+        if (output->failedToOpen() || ! output->setPosition (offset))
+            return fail ("Could not open the partial update package for writing", attempts);
+
+        const auto remainingSize = expectedSize > 0 ? expectedSize - offset : -1;
+        const auto remainingLimit = expectedSize > 0 ? remainingSize
+                                                     : maximumPackageBytes - offset;
+        const auto copyResult = update_detail::copyDownloadStream (
+            *input, *output, remainingSize, remainingLimit);
+        output->flush();
+        const auto outputStatus = output->getStatus();
+        output.reset();
+
+        if (outputStatus.failed())
+            return fail ("Could not finish writing the update package: "
+                         + outputStatus.getErrorMessage(), attempts);
+
+        if (! copyResult.succeeded())
+        {
+            lastError = copyResult.error;
+            if (partialFile.getSize() > maximumPackageBytes
+                || (expectedSize > 0 && partialFile.getSize() > expectedSize))
+                partialFile.deleteFile();
+            continue;
+        }
+
+        downloadComplete = partialFile.existsAsFile()
+            && partialFile.getSize() > 0
+            && (expectedSize <= 0 || partialFile.getSize() == expectedSize);
+        if (! downloadComplete)
+            lastError = "The downloaded update package size does not match the release";
+    }
+
+    if (! downloadComplete)
+        return fail (lastError, attempts);
 
     const auto digest = expectedDigest.trim().toLowerCase();
     if (digest.isNotEmpty())
     {
         if (! digest.startsWith ("sha256:") || digest.length() != 71)
-            return fail ("The release uses an unsupported package digest");
+            return fail ("The release uses an unsupported package digest", attempts);
 
         const auto actualDigest = "sha256:" + juce::SHA256 (partialFile).toHexString();
         if (actualDigest != digest)
-            return fail ("The downloaded update package failed SHA-256 verification");
+        {
+            partialFile.deleteFile();
+            return fail ("The downloaded update package failed SHA-256 verification", attempts);
+        }
     }
 
     if (! partialFile.moveFileTo (packageFile))
-        return fail ("Could not finalize the update package");
+        return fail ("Could not finalize the update package", attempts);
 
     result.packageFile = packageFile;
     return result;

@@ -6,7 +6,7 @@ Native C++20/JUCE audio editor prototype for Windows and Android. The current
 build focuses on multitrack clip editing, adjustable spatial-audio experiments,
 playback controls, and WAV export.
 
-Current release: **0.1.12** (`versionCode 13` on Android).
+Current releases: Android **0.1.13** (`versionCode 14`); Windows **0.1.12**.
 
 ## Current features
 
@@ -24,7 +24,7 @@ Current release: **0.1.12** (`versionCode 13` on Android).
 - Clip-range spatial and relative-volume adjustments with configurable entry/exit transitions and timeline envelopes; on landscape phones, the range tool remains in the fixed top toolbar instead of covering the waveform
 - Mobile parameter values are display-only and parameter rows do not accept text focus, so touching labels, values, or sliders cannot open the soft keyboard
 - PCM WAV export options for 44.1/48/88.2/96 kHz, 16/24/32-bit, and Stereo, 5.1, 7.1, 5.1.4, or 7.1.4 layouts
-- Chinese/English GitHub Release update checks on Windows and Android, with in-app APK download and package validation on Android
+- Chinese/English GitHub Release update checks on Windows and Android, with resumable in-app APK download and package validation on Android
 
 ### Online updates
 

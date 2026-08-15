@@ -171,6 +171,21 @@ int main (int argc, char* argv[])
     constexpr double sampleRate = 48000.0;
     constexpr int sourceSamples = 4800;
 
+    if (argc == 6 && juce::String (argv[1]) == "--download-update-test")
+    {
+        const auto result = oi::UpdateService::downloadPackage (
+            argv[2], argv[3], juce::String (argv[4]).getLargeIntValue(), argv[5]);
+        if (! result.succeeded())
+        {
+            std::cerr << result.error << '\n';
+            return 1;
+        }
+
+        std::cout << result.packageFile.getFullPathName() << '\n'
+                  << result.packageFile.getSize() << '\n';
+        return 0;
+    }
+
     if (argc == 3 && juce::String (argv[1]) == "--write-fixtures")
     {
         const juce::File directory { juce::String (argv[2]) };
@@ -234,6 +249,19 @@ int main (int argc, char* argv[])
     if (interruptedResult.succeeded()
         || interruptedResult.error != "The update download was interrupted")
         return fail ("an interrupted update download was accepted as complete");
+
+    using ResumeAction = oi::update_detail::ResumeResponseAction;
+    if (oi::update_detail::classifyResumeResponse (206, "bytes 8-20/31", 8, 31)
+            != ResumeAction::append
+        || oi::update_detail::classifyResumeResponse (200, {}, 8, 31)
+            != ResumeAction::restart
+        || oi::update_detail::classifyResumeResponse (206, "bytes 0-20/31", 8, 31)
+            != ResumeAction::reject
+        || oi::update_detail::classifyResumeResponse (206, "bytes 8-20/32", 8, 31)
+            != ResumeAction::reject
+        || oi::update_detail::classifyResumeResponse (200, {}, 0, 31)
+            != ResumeAction::append)
+        return fail ("update resume response validation is incorrect");
 
     if (! writeConstantWave (firstFile.getFile(), 0.20f, sampleRate, sourceSamples)
         || ! writeConstantWave (secondFile.getFile(), 0.30f, sampleRate, sourceSamples)

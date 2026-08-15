@@ -2,6 +2,13 @@
 #include "UpdateService.h"
 
 #include <cmath>
+#include <functional>
+#include <mutex>
+
+#if JUCE_ANDROID
+ #include <jni.h>
+ #include <juce_core/native/juce_JNIHelpers_android.h>
+#endif
 
 namespace oi
 {
@@ -481,6 +488,119 @@ constexpr bool initialiseAudioDuringConstruction =
     true;
    #endif
 }
+
+#if JUCE_ANDROID
+namespace android_export_detail
+{
+using DestinationCallback = std::function<void (juce::String, juce::String)>;
+
+static std::mutex callbackMutex;
+static DestinationCallback destinationCallback;
+
+static juce::Result beginWavExport (const juce::String& suggestedName,
+                                    DestinationCallback callback)
+{
+    auto activity = juce::getCurrentActivity();
+    if (activity == nullptr)
+        activity = juce::getMainActivity();
+    if (activity == nullptr)
+        return juce::Result::fail ("The Android activity is not available");
+
+    auto* env = juce::getEnv();
+    juce::LocalRef<jclass> activityClass (
+        static_cast<jclass> (env->GetObjectClass (activity.get())));
+    const auto method = env->GetMethodID (activityClass.get(), "beginWavExport",
+                                          "(Ljava/lang/String;)Z");
+    if (method == nullptr || env->ExceptionCheck())
+    {
+        env->ExceptionClear();
+        return juce::Result::fail ("The Android export picker is unavailable");
+    }
+
+    {
+        const std::scoped_lock lock (callbackMutex);
+        destinationCallback = std::move (callback);
+    }
+
+    const auto javaName = juce::javaString (suggestedName);
+    const auto started = env->CallBooleanMethod (activity.get(), method, javaName.get());
+    if (env->ExceptionCheck() || started == 0)
+    {
+        env->ExceptionClear();
+        const std::scoped_lock lock (callbackMutex);
+        destinationCallback = {};
+        return juce::Result::fail ("Android could not open the export destination picker");
+    }
+
+    return juce::Result::ok();
+}
+
+static juce::Result copyWavToDocument (const juce::File& source,
+                                       const juce::String& destinationUri)
+{
+    auto activity = juce::getCurrentActivity();
+    if (activity == nullptr)
+        activity = juce::getMainActivity();
+    if (activity == nullptr)
+        return juce::Result::fail ("The Android activity is not available");
+
+    auto* env = juce::getEnv();
+    juce::LocalRef<jclass> activityClass (
+        static_cast<jclass> (env->GetObjectClass (activity.get())));
+    const auto method = env->GetMethodID (
+        activityClass.get(), "copyWavExport",
+        "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+    if (method == nullptr || env->ExceptionCheck())
+    {
+        env->ExceptionClear();
+        return juce::Result::fail ("The Android document writer is unavailable");
+    }
+
+    const auto javaSource = juce::javaString (source.getFullPathName());
+    const auto javaDestination = juce::javaString (destinationUri);
+    juce::LocalRef<jstring> javaError (static_cast<jstring> (
+        env->CallObjectMethod (activity.get(), method,
+                               javaSource.get(), javaDestination.get())));
+    if (env->ExceptionCheck())
+    {
+        env->ExceptionClear();
+        return juce::Result::fail ("Android could not write the selected document");
+    }
+
+    const auto error = juce::juceString (javaError.get());
+    return error.isEmpty() ? juce::Result::ok() : juce::Result::fail (error);
+}
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_studio_oi_musiceditor_OiJuceActivity_nativeWavExportDestinationSelected (
+    JNIEnv*, jclass, jstring, jstring);
+
+extern "C" JNIEXPORT void JNICALL
+Java_studio_oi_musiceditor_OiJuceActivity_nativeWavExportDestinationSelected (
+    JNIEnv* env, jclass, jstring uri, jstring displayName)
+{
+    android_export_detail::DestinationCallback pendingCallback;
+    {
+        const std::scoped_lock lock (android_export_detail::callbackMutex);
+        pendingCallback = std::move (android_export_detail::destinationCallback);
+        android_export_detail::destinationCallback = {};
+    }
+
+    if (! pendingCallback)
+        return;
+
+    auto destinationUri = juce::juceString (env, uri);
+    auto destinationName = juce::juceString (env, displayName);
+    juce::MessageManager::callAsync (
+        [callbackToInvoke = std::move (pendingCallback),
+         uriToDeliver = std::move (destinationUri),
+         nameToDeliver = std::move (destinationName)] () mutable
+        {
+            callbackToInvoke (std::move (uriToDeliver), std::move (nameToDeliver));
+        });
+}
+#endif
 
 IconButton::IconButton (Icon initialIcon, const juce::String& name)
     : juce::Button (name), icon (initialIcon)
@@ -5797,6 +5917,22 @@ void MainComponent::chooseExportDestination (AudioEngine::ExportSettings setting
         suggestedName = "0i-Studio Mix";
     suggestedName = juce::File::createLegalFileName (suggestedName) + ".wav";
 
+   #if JUCE_ANDROID
+    const juce::Component::SafePointer<MainComponent> safeThis (this);
+    const auto pickerResult = android_export_detail::beginWavExport (
+        suggestedName, [safeThis, settings] (juce::String destinationUri,
+                                              juce::String displayName)
+        {
+            if (destinationUri.isEmpty())
+                return;
+
+            if (auto* component = safeThis.getComponent())
+                component->startAndroidExport (std::move (destinationUri),
+                                               std::move (displayName), settings);
+        });
+    if (pickerResult.failed())
+        showExportMessage (false, pickerResult.getErrorMessage());
+   #else
     fileChooser = std::make_unique<juce::FileChooser> (localizer.text (TextId::exportAudio),
                                                         juce::File::getSpecialLocation (
                                                             juce::File::userMusicDirectory)
@@ -5815,6 +5951,7 @@ void MainComponent::chooseExportDestination (AudioEngine::ExportSettings setting
             startExport (destination, settings);
         }
     });
+   #endif
 }
 
 void MainComponent::startExport (juce::File destination,
@@ -5845,6 +5982,57 @@ void MainComponent::startExport (juce::File destination,
         });
     });
 }
+
+#if JUCE_ANDROID
+void MainComponent::startAndroidExport (juce::String destinationUri,
+                                        juce::String displayName,
+                                        AudioEngine::ExportSettings settings)
+{
+    if (exportInProgress)
+        return;
+
+    displayName = displayName.trim();
+    if (displayName.isEmpty())
+        displayName = "0i-Studio Mix.wav";
+
+    exportInProgress = true;
+    exportButton.setEnabled (false);
+    statusLeft.setText (localizer.text (TextId::exporting), juce::dontSendNotification);
+    const auto projectSnapshot = audioEngine.getProjectSnapshot();
+    const juce::Component::SafePointer<MainComponent> safeThis (this);
+    exportThread.addJob ([safeThis, projectSnapshot,
+                          destination = std::move (destinationUri),
+                          name = std::move (displayName), settings]
+    {
+        const auto exportDirectory = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                         .getChildFile ("0i-Studio Exports");
+        auto result = exportDirectory.createDirectory();
+        const auto temporaryWav = exportDirectory.getNonexistentChildFile (
+            "rendered-export", ".wav", true);
+        const juce::ScopeGuard removeTemporaryWav {
+            [temporaryWav] { temporaryWav.deleteFile(); }
+        };
+
+        if (result.wasOk())
+            result = AudioEngine::exportProjectWav (projectSnapshot, temporaryWav, settings);
+        if (result.wasOk())
+            result = android_export_detail::copyWavToDocument (temporaryWav, destination);
+
+        juce::MessageManager::callAsync ([safeThis, result, name]
+        {
+            if (auto* component = safeThis.getComponent())
+            {
+                component->exportInProgress = false;
+                component->exportButton.setEnabled (true);
+                component->showExportMessage (result.wasOk(),
+                                               result.wasOk() ? name
+                                                              : result.getErrorMessage());
+                component->updateTransport();
+            }
+        });
+    });
+}
+#endif
 
 void MainComponent::showExportMessage (bool success, const juce::String& detail)
 {

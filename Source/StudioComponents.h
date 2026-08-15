@@ -486,6 +486,11 @@ private:
     void showExportPanel();
     void chooseExportDestination (AudioEngine::ExportSettings);
     void startExport (juce::File, AudioEngine::ExportSettings);
+   #if JUCE_ANDROID
+    void startAndroidExport (juce::String destinationUri,
+                             juce::String displayName,
+                             AudioEngine::ExportSettings);
+   #endif
     void showExportMessage (bool success, const juce::String& detail = {});
     void updateTransport();
     void setPlaybackSpeed (double);
