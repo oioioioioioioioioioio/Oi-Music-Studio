@@ -291,6 +291,7 @@ public:
     void refreshText();
     void resized() override;
     void lookAndFeelChanged() override;
+    void mouseDown (const juce::MouseEvent&) override;
     void setValue (double value, juce::NotificationType notification = juce::dontSendNotification);
     [[nodiscard]] double getValue() const { return slider.getValue(); }
     juce::Slider& getSlider() noexcept { return slider; }
@@ -304,7 +305,11 @@ private:
     juce::String suffix;
     bool signedValue;
     juce::Label nameLabel;
+   #if JUCE_ANDROID
+    juce::Label valueLabel;
+   #else
     juce::TextEditor valueEditor;
+   #endif
     juce::Slider slider;
 };
 
@@ -459,6 +464,10 @@ private:
     void showAudioDeviceSettings();
     void showAboutAndContact();
     void checkForUpdates (bool showFeedback);
+    void downloadAndInstallUpdate (juce::String downloadUrl,
+                                   juce::String latestVersion,
+                                   juce::int64 expectedSize,
+                                   juce::String expectedDigest);
     void showFileMenu();
     void showEditMenu();
     void showTrackMenu();
@@ -545,6 +554,7 @@ private:
                                                                .withThreadName ("0i Update Check") };
     bool exportInProgress = false;
     bool updateCheckInProgress = false;
+    bool updateDownloadInProgress = false;
     juce::String mobilePanel;
 };
 } // namespace oi

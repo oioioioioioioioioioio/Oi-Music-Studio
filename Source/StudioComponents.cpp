@@ -2540,6 +2540,17 @@ ParameterRow::ParameterRow (Localizer& strings, TextId id, double minimum, doubl
     : localizer (strings), textId (id), suffix (std::move (valueSuffix)), signedValue (shouldSign)
 {
     nameLabel.setJustificationType (juce::Justification::centredLeft);
+    nameLabel.setMouseClickGrabsKeyboardFocus (false);
+   #if JUCE_ANDROID
+    setWantsKeyboardFocus (false);
+    setMouseClickGrabsKeyboardFocus (false);
+    nameLabel.setWantsKeyboardFocus (false);
+    nameLabel.setInterceptsMouseClicks (false, false);
+    valueLabel.setJustificationType (juce::Justification::centredRight);
+    valueLabel.setWantsKeyboardFocus (false);
+    valueLabel.setMouseClickGrabsKeyboardFocus (false);
+    valueLabel.setInterceptsMouseClicks (false, false);
+   #else
     valueEditor.setJustification (juce::Justification::centredRight);
     valueEditor.setInputRestrictions (12, "-+0123456789.");
     valueEditor.setSelectAllWhenFocused (true);
@@ -2557,22 +2568,34 @@ ParameterRow::ParameterRow (Localizer& strings, TextId id, double minimum, doubl
         slider.setValue (valueEditor.getText().getDoubleValue(), juce::sendNotification);
         updateValueLabel();
     };
+   #endif
     slider.setSliderStyle (juce::Slider::LinearHorizontal);
     slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     slider.setMouseClickGrabsKeyboardFocus (false);
     slider.setRange (minimum, maximum, step);
     slider.setValue (value, juce::dontSendNotification);
+   #if JUCE_ANDROID
+    slider.onDragStart = []
+    {
+        juce::Component::unfocusAllComponents();
+    };
+   #else
     slider.onDragStart = [this]
     {
         valueEditor.giveAwayKeyboardFocus();
     };
+   #endif
     slider.onValueChange = [this]
     {
         updateValueLabel();
         if (onValueChanged) onValueChanged (slider.getValue());
     };
     addAndMakeVisible (nameLabel);
+   #if JUCE_ANDROID
+    addAndMakeVisible (valueLabel);
+   #else
     addAndMakeVisible (valueEditor);
+   #endif
     addAndMakeVisible (slider);
     refreshText();
     updateValueLabel();
@@ -2587,15 +2610,30 @@ void ParameterRow::resized()
 {
     auto area = getLocalBounds();
     auto header = area.removeFromTop (20);
+   #if JUCE_ANDROID
+    valueLabel.setBounds (header.removeFromRight (86).reduced (0, 1));
+   #else
     valueEditor.setBounds (header.removeFromRight (86).reduced (0, 1));
+   #endif
     nameLabel.setBounds (header);
     slider.setBounds (area.reduced (0, 1));
 }
 
 void ParameterRow::lookAndFeelChanged()
 {
+   #if JUCE_ANDROID
+    valueLabel.setColour (juce::Label::textColourId, coloursOf (*this).text);
+   #else
     valueEditor.applyColourToAllText (coloursOf (*this).text, true);
+   #endif
     repaint();
+}
+
+void ParameterRow::mouseDown (const juce::MouseEvent&)
+{
+   #if JUCE_ANDROID
+    juce::Component::unfocusAllComponents();
+   #endif
 }
 
 void ParameterRow::setValue (double value, juce::NotificationType notification)
@@ -2611,8 +2649,13 @@ void ParameterRow::updateValueLabel()
     if (signedValue && slider.getValue() >= 0.0)
         value = "+" + value;
     const auto displayValue = value + suffix;
+   #if JUCE_ANDROID
+    valueLabel.setText (displayValue, juce::dontSendNotification);
+    valueLabel.setTooltip (displayValue);
+   #else
     valueEditor.setText (displayValue, false);
     valueEditor.setTooltip (displayValue);
+   #endif
 }
 
 InspectorPanel::InspectorPanel (Localizer& strings, AppState& appState, AudioEngine& engine)
@@ -4713,7 +4756,8 @@ void MainComponent::showMobileMenu()
     menu.addItem (31, label ("中文", "Chinese"), true, state.language == Language::chinese);
     menu.addItem (32, label ("English", "English"), true, state.language == Language::english);
     menu.addItem (33, label ("音频设备", "Audio device settings"));
-    menu.addItem (34, label ("检查更新...", "Check for updates..."), ! updateCheckInProgress);
+    menu.addItem (34, label ("检查更新...", "Check for updates..."),
+                  ! updateCheckInProgress && ! updateDownloadInProgress);
     menu.addItem (35, label ("关于与联系方式", "About & contact"));
 
     const juce::Component::SafePointer<MainComponent> safeThis (this);
@@ -4811,19 +4855,20 @@ void MainComponent::showAboutAndContact()
 void MainComponent::checkForUpdates (bool showFeedback)
 {
     const auto chinese = localizer.getLanguage() == Language::chinese;
-    if (updateCheckInProgress)
+    if (updateCheckInProgress || updateDownloadInProgress)
     {
         if (showFeedback)
             juce::AlertWindow::showMessageBoxAsync (
                 juce::MessageBoxIconType::InfoIcon,
                 chinese ? juce::String::fromUTF8 ("检查更新") : juce::String ("Check for updates"),
-                chinese ? juce::String::fromUTF8 ("正在检查，请稍候。")
-                        : juce::String ("An update check is already in progress."),
+                chinese ? juce::String::fromUTF8 ("更新操作正在进行，请稍候。")
+                        : juce::String ("An update operation is already in progress."),
                 {}, this);
         return;
     }
 
     updateCheckInProgress = true;
+    updateToggleStates();
     const juce::Component::SafePointer<MainComponent> safeThis (this);
     const juce::String currentVersion (JUCE_APPLICATION_VERSION_STRING);
     updateThread.addJob ([safeThis, currentVersion, showFeedback]
@@ -4837,6 +4882,7 @@ void MainComponent::checkForUpdates (bool showFeedback)
                 return;
 
             component->updateCheckInProgress = false;
+            component->updateToggleStates();
             const auto isChinese = component->localizer.getLanguage() == Language::chinese;
             const auto title = isChinese ? juce::String::fromUTF8 ("检查更新")
                                          : juce::String ("Check for updates");
@@ -4869,11 +4915,18 @@ void MainComponent::checkForUpdates (bool showFeedback)
 
             auto message = isChinese
                 ? juce::String::fromUTF8 ("发现新版本 ") + result.latestVersion
-                    + juce::String::fromUTF8 ("（当前版本 ") + currentVersion
-                    + juce::String::fromUTF8 ("）。\n\n下载完成后，请确认安装或运行新版客户端。")
+                    + juce::String::fromUTF8 ("（当前版本 ") + currentVersion + juce::String::fromUTF8 ("）。")
                 : juce::String ("Version ") + result.latestVersion
-                    + " is available (current version " + currentVersion
-                    + ").\n\nAfter downloading, confirm installation or run the new client.";
+                    + " is available (current version " + currentVersion + ").";
+           #if JUCE_ANDROID
+            message += isChinese
+                ? juce::String::fromUTF8 ("\n\n安装包将在 App 内下载并校验，完成后自动打开系统安装页面。")
+                : juce::String ("\n\nThe package will be downloaded and verified in the app, then the system installer will open automatically.");
+           #else
+            message += isChinese
+                ? juce::String::fromUTF8 ("\n\n下载完成后，请确认安装或运行新版客户端。")
+                : juce::String ("\n\nAfter downloading, confirm installation or run the new client.");
+           #endif
             const auto downloadUrl = result.downloadUrl.isNotEmpty()
                                            ? result.downloadUrl : result.releaseUrl;
 
@@ -4882,15 +4935,29 @@ void MainComponent::checkForUpdates (bool showFeedback)
                 isChinese ? juce::String::fromUTF8 ("发现新版本")
                           : juce::String ("Update available"),
                 message,
+               #if JUCE_ANDROID
+                isChinese ? juce::String::fromUTF8 ("下载并安装") : juce::String ("Download & install"),
+               #else
                 isChinese ? juce::String::fromUTF8 ("下载更新") : juce::String ("Download"),
+               #endif
                 isChinese ? juce::String::fromUTF8 ("稍后") : juce::String ("Later"),
                 component,
                 juce::ModalCallbackFunction::create (
-                    [safeThis, downloadUrl] (int selected)
+                    [safeThis, downloadUrl,
+                     latestVersion = result.latestVersion,
+                     expectedSize = result.downloadSize,
+                     expectedDigest = result.downloadDigest] (int selected)
                 {
-                    if (selected == 1 && ! juce::URL (downloadUrl).launchInDefaultBrowser())
+                    if (selected != 1)
+                        return;
+
+                    if (auto* owner = safeThis.getComponent())
                     {
-                        if (auto* owner = safeThis.getComponent())
+                       #if JUCE_ANDROID
+                        owner->downloadAndInstallUpdate (downloadUrl, latestVersion,
+                                                         expectedSize, expectedDigest);
+                       #else
+                        if (! juce::URL (downloadUrl).launchInDefaultBrowser())
                         {
                             const auto ownerChinese = owner->localizer.getLanguage() == Language::chinese;
                             juce::AlertWindow::showMessageBoxAsync (
@@ -4899,10 +4966,80 @@ void MainComponent::checkForUpdates (bool showFeedback)
                                              : juce::String ("Could not open download"),
                                 downloadUrl, {}, owner);
                         }
+                       #endif
                     }
                 }));
         });
     });
+}
+
+void MainComponent::downloadAndInstallUpdate (juce::String downloadUrl,
+                                              juce::String latestVersion,
+                                              juce::int64 expectedSize,
+                                              juce::String expectedDigest)
+{
+   #if JUCE_ANDROID
+    if (updateDownloadInProgress)
+        return;
+
+    updateDownloadInProgress = true;
+    updateToggleStates();
+    const auto chinese = localizer.getLanguage() == Language::chinese;
+    juce::AlertWindow::showMessageBoxAsync (
+        juce::MessageBoxIconType::InfoIcon,
+        chinese ? juce::String::fromUTF8 ("正在下载更新") : juce::String ("Downloading update"),
+        chinese ? juce::String::fromUTF8 ("安装包正在 App 内下载。校验完成后会自动打开系统安装页面。")
+                : juce::String ("The package is downloading inside the app. The system installer will open after verification."),
+        {}, this);
+
+    const juce::Component::SafePointer<MainComponent> safeThis (this);
+    updateThread.addJob ([safeThis,
+                          packageUrl = std::move (downloadUrl),
+                          packageVersion = std::move (latestVersion),
+                          expectedSize,
+                          packageDigest = std::move (expectedDigest)]
+    {
+        auto downloadResult = UpdateService::downloadPackage (
+            packageUrl, packageVersion, expectedSize, packageDigest);
+        juce::MessageManager::callAsync (
+            [safeThis, result = std::move (downloadResult)] () mutable
+        {
+            auto* component = safeThis.getComponent();
+            if (component == nullptr)
+                return;
+
+            component->updateDownloadInProgress = false;
+            component->updateToggleStates();
+            const auto isChinese = component->localizer.getLanguage() == Language::chinese;
+
+            if (! result.succeeded())
+            {
+                const auto message = isChinese
+                    ? juce::String::fromUTF8 ("更新包下载或校验失败。\n\n") + result.error
+                    : juce::String ("The update package could not be downloaded or verified.\n\n") + result.error;
+                juce::AlertWindow::showMessageBoxAsync (
+                    juce::MessageBoxIconType::WarningIcon,
+                    isChinese ? juce::String::fromUTF8 ("更新失败") : juce::String ("Update failed"),
+                    message, {}, component);
+                return;
+            }
+
+            juce::String installError;
+            if (! UpdateService::launchDownloadedPackage (result.packageFile, installError))
+            {
+                const auto message = isChinese
+                    ? juce::String::fromUTF8 ("无法打开系统安装页面。\n\n") + installError
+                    : juce::String ("The system installer could not be opened.\n\n") + installError;
+                juce::AlertWindow::showMessageBoxAsync (
+                    juce::MessageBoxIconType::WarningIcon,
+                    isChinese ? juce::String::fromUTF8 ("无法安装更新") : juce::String ("Could not install update"),
+                    message, {}, component);
+            }
+        });
+    });
+   #else
+    juce::ignoreUnused (downloadUrl, latestVersion, expectedSize, expectedDigest);
+   #endif
 }
 
 void MainComponent::showFileMenu()
@@ -4920,7 +5057,8 @@ void MainComponent::showFileMenu()
                   audioEngine.hasFile() && ! exportInProgress);
     menu.addSeparator();
     menu.addItem (4, text ("音频设备设置...", "Audio device settings..."));
-    menu.addItem (5, text ("检查更新...", "Check for updates..."), ! updateCheckInProgress);
+    menu.addItem (5, text ("检查更新...", "Check for updates..."),
+                  ! updateCheckInProgress && ! updateDownloadInProgress);
     menu.addItem (6, text ("关于与联系方式...", "About & contact..."));
 
     const juce::Component::SafePointer<MainComponent> safeThis (this);
