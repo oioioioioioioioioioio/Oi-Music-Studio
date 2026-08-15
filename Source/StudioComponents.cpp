@@ -2559,8 +2559,13 @@ ParameterRow::ParameterRow (Localizer& strings, TextId id, double minimum, doubl
     };
     slider.setSliderStyle (juce::Slider::LinearHorizontal);
     slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    slider.setMouseClickGrabsKeyboardFocus (false);
     slider.setRange (minimum, maximum, step);
     slider.setValue (value, juce::dontSendNotification);
+    slider.onDragStart = [this]
+    {
+        valueEditor.giveAwayKeyboardFocus();
+    };
     slider.onValueChange = [this]
     {
         updateValueLabel();

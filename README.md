@@ -3,7 +3,7 @@
 Native C++20/JUCE desktop and Android application for a professional multitrack
 and spatial audio editor.
 
-Current release: **0.1.8** (`versionCode 9` on Android).
+Current release: **0.1.9** (`versionCode 10` on Android).
 
 ## Current milestone
 
@@ -19,6 +19,7 @@ Current release: **0.1.8** (`versionCode 9` on Android).
 - Clip gain, master gain, transport seek/loop, and variable-speed playback
 - Per-track spatial rendering with enable/bypass, radius, azimuth, elevation, orbit speed, spread, directivity, attenuation curves, and optional air absorption
 - Clip-local spatial and relative-volume automation over a continuous track-level 3D bed, with adjustable smooth entry/exit transitions and timeline envelopes; on landscape phones, a fixed top-bar clip toolbar exposes the range tool directly without covering the waveform
+- Mobile parameter sliders keep focus away from adjacent numeric editors and dismiss an existing soft keyboard when dragging, while direct numeric entry remains available
 - Offline PCM WAV export at 44.1/48/88.2/96 kHz and 16/24/32-bit, with Stereo, 5.1, 7.1, 5.1.4, and 7.1.4 speaker layouts
 - Bilingual GitHub Release update checks on Windows and Android, with platform-specific downloads and a manual menu action
 
