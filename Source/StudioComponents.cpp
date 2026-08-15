@@ -1306,6 +1306,9 @@ void TimelineComponent::paintClip (juce::Graphics& g, const AudioEngine::Clip& p
                                    int trackIndex, juce::Rectangle<float> lane, juce::Colour trackColour,
                                    double timelineLength, bool dragged)
 {
+    juce::Graphics::ScopedSaveState clipState (g);
+    g.reduceClipRegion (lane.toNearestInt());
+
     const auto& c = coloursOf (*this);
     const auto displayStart = dragged ? dragPreviewStart : projectClip.timelineStart;
     auto clip = juce::Rectangle<float> (xAtTime (displayStart),

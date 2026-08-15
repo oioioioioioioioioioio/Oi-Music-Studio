@@ -6,7 +6,7 @@ Native C++20/JUCE audio editor prototype for Windows and Android. The current
 build focuses on multitrack clip editing, adjustable spatial-audio experiments,
 playback controls, and WAV export.
 
-Current release: **0.1.10** (`versionCode 11` on Android).
+Current release: **0.1.11** (`versionCode 12` on Android).
 
 ## Current features
 
