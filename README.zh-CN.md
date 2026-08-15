@@ -4,7 +4,7 @@
 
 一个基于 C++20 和 JUCE 开发的音频编辑器原型，可运行在 Windows 和 Android 手机、平板上。当前版本主要围绕多轨片段编辑、可调空间音频实验、播放控制和 WAV 导出进行开发。
 
-当前版本：**0.1.11**（Android `versionCode 12`）。
+当前版本：**0.1.12**（Android `versionCode 13`）。
 
 ## 当前功能
 

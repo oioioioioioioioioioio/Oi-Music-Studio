@@ -4,6 +4,7 @@
 #include "../Source/UpdateService.h"
 
 #include <cmath>
+#include <cstring>
 #include <iostream>
 
 namespace
@@ -91,6 +92,78 @@ juce::AudioChannelSet wave7point1Layout (bool includeHeight)
     }
     return juce::AudioChannelSet::channelSetWithChannels (channels);
 }
+
+class AndroidStyleInputStream final : public juce::InputStream
+{
+public:
+    AndroidStyleInputStream (const juce::String& contents,
+                             bool reportsExhaustedAtEnd,
+                             int failAfterBytes = -1)
+        : data (contents.toRawUTF8(), contents.getNumBytesAsUTF8()),
+          exhaustedAtEnd (reportsExhaustedAtEnd),
+          failurePosition (failAfterBytes)
+    {
+    }
+
+    juce::int64 getTotalLength() override
+    {
+        return static_cast<juce::int64> (data.getSize());
+    }
+
+    juce::int64 getPosition() override { return position; }
+
+    bool setPosition (juce::int64 newPosition) override
+    {
+        if (newPosition < 0 || newPosition > getTotalLength())
+            return false;
+
+        position = newPosition;
+        exhausted = false;
+        return true;
+    }
+
+    bool isExhausted() override { return exhausted; }
+
+    int read (void* destination, int maximumBytesToRead) override
+    {
+        if (failurePosition >= 0 && position >= failurePosition)
+        {
+            exhausted = false;
+            return -1;
+        }
+
+        if (position >= getTotalLength())
+        {
+            exhausted = exhaustedAtEnd;
+            return -1;
+        }
+
+        auto available = static_cast<int> (getTotalLength() - position);
+        if (failurePosition >= 0)
+            available = juce::jmin (available,
+                                    static_cast<int> (failurePosition - position));
+
+        const auto bytesToRead = juce::jmin (available, maximumBytesToRead);
+        if (bytesToRead <= 0)
+        {
+            exhausted = false;
+            return -1;
+        }
+
+        std::memcpy (destination,
+                     static_cast<const char*> (data.getData()) + position,
+                     static_cast<size_t> (bytesToRead));
+        position += bytesToRead;
+        return bytesToRead;
+    }
+
+private:
+    juce::MemoryBlock data;
+    const bool exhaustedAtEnd;
+    const int failurePosition;
+    juce::int64 position = 0;
+    bool exhausted = false;
+};
 }
 
 int main (int argc, char* argv[])
@@ -133,6 +206,34 @@ int main (int argc, char* argv[])
         || oi::UpdateService::isVersionNewer ("v0.1.5", "0.1.5")
         || oi::UpdateService::isVersionNewer ("0.1.4", "0.1.5"))
         return fail ("online update version comparison is incorrect");
+
+    const juce::String updatePayload = "complete Android update payload";
+    const auto updatePayloadSize = static_cast<juce::int64> (updatePayload.getNumBytesAsUTF8());
+
+    AndroidStyleInputStream normalEofStream (updatePayload, true);
+    juce::MemoryOutputStream normalEofOutput;
+    const auto normalEofResult = oi::update_detail::copyDownloadStream (
+        normalEofStream, normalEofOutput, updatePayloadSize, 1024);
+    if (! normalEofResult.succeeded()
+        || normalEofResult.bytesWritten != updatePayloadSize
+        || normalEofOutput.toString() != updatePayload)
+        return fail ("Android -1 EOF was treated as an interrupted update download");
+
+    AndroidStyleInputStream expectedSizeStream (updatePayload, false);
+    juce::MemoryOutputStream expectedSizeOutput;
+    const auto expectedSizeResult = oi::update_detail::copyDownloadStream (
+        expectedSizeStream, expectedSizeOutput, updatePayloadSize, 1024);
+    if (! expectedSizeResult.succeeded()
+        || expectedSizeResult.bytesWritten != updatePayloadSize)
+        return fail ("a complete update download did not use the release asset size fallback");
+
+    AndroidStyleInputStream interruptedStream (updatePayload, false, 8);
+    juce::MemoryOutputStream interruptedOutput;
+    const auto interruptedResult = oi::update_detail::copyDownloadStream (
+        interruptedStream, interruptedOutput, updatePayloadSize, 1024);
+    if (interruptedResult.succeeded()
+        || interruptedResult.error != "The update download was interrupted")
+        return fail ("an interrupted update download was accepted as complete");
 
     if (! writeConstantWave (firstFile.getFile(), 0.20f, sampleRate, sourceSamples)
         || ! writeConstantWave (secondFile.getFile(), 0.30f, sampleRate, sourceSamples)

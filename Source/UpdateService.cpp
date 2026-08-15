@@ -88,6 +88,54 @@ bool isTrustedPackageUrl (const juce::String& url)
 }
 }
 
+update_detail::DownloadCopyResult update_detail::copyDownloadStream (
+    juce::InputStream& input,
+    juce::OutputStream& output,
+    juce::int64 expectedSize,
+    juce::int64 maximumSize)
+{
+    DownloadCopyResult result;
+    std::array<char, 64 * 1024> buffer {};
+
+    for (;;)
+    {
+        const auto bytesRead = input.read (buffer.data(), static_cast<int> (buffer.size()));
+        if (bytesRead < 0)
+        {
+            // JUCE's Android stream forwards Java InputStream.read(), which returns -1 at EOF.
+            const auto reachedExpectedSize = expectedSize > 0
+                                          && result.bytesWritten == expectedSize;
+            if (input.isExhausted() || reachedExpectedSize)
+                break;
+
+            result.error = "The update download was interrupted";
+            return result;
+        }
+
+        if (bytesRead == 0)
+            break;
+
+        result.bytesWritten += bytesRead;
+        if (result.bytesWritten > maximumSize)
+        {
+            result.error = "The update package exceeded the size limit";
+            return result;
+        }
+
+        if (! output.write (buffer.data(), static_cast<size_t> (bytesRead)))
+        {
+            result.error = "Could not write the update package";
+            return result;
+        }
+    }
+
+    if (result.bytesWritten == 0
+        || (expectedSize > 0 && result.bytesWritten != expectedSize))
+        result.error = "The downloaded update package size does not match the release";
+
+    return result;
+}
+
 bool UpdateService::isVersionNewer (const juce::String& candidate,
                                     const juce::String& current)
 {
@@ -262,31 +310,16 @@ UpdateDownloadResult UpdateService::downloadPackage (const juce::String& downloa
     if (output == nullptr)
         return fail ("Could not create the update package file");
 
-    std::array<char, 64 * 1024> buffer {};
-    juce::int64 bytesWritten = 0;
-    for (;;)
-    {
-        const auto bytesRead = input->read (buffer.data(), static_cast<int> (buffer.size()));
-        if (bytesRead < 0)
-            return fail ("The update download was interrupted");
-        if (bytesRead == 0)
-            break;
-
-        bytesWritten += bytesRead;
-        if (bytesWritten > maximumPackageBytes)
-            return fail ("The update package exceeded the size limit");
-        if (! output->write (buffer.data(), static_cast<size_t> (bytesRead)))
-            return fail ("Could not write the update package");
-    }
+    const auto copyResult = update_detail::copyDownloadStream (
+        *input, *output, expectedSize, maximumPackageBytes);
+    if (! copyResult.succeeded())
+        return fail (copyResult.error);
 
     output->flush();
     if (output->getStatus().failed())
         return fail ("Could not finish writing the update package: "
                      + output->getStatus().getErrorMessage());
     output.reset();
-
-    if (bytesWritten == 0 || (expectedSize > 0 && bytesWritten != expectedSize))
-        return fail ("The downloaded update package size does not match the release");
 
     const auto digest = expectedDigest.trim().toLowerCase();
     if (digest.isNotEmpty())

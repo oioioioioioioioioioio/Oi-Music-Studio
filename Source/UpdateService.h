@@ -28,6 +28,22 @@ struct UpdateDownloadResult
     }
 };
 
+namespace update_detail
+{
+struct DownloadCopyResult
+{
+    juce::int64 bytesWritten = 0;
+    juce::String error;
+
+    [[nodiscard]] bool succeeded() const noexcept { return error.isEmpty(); }
+};
+
+[[nodiscard]] DownloadCopyResult copyDownloadStream (juce::InputStream& input,
+                                                      juce::OutputStream& output,
+                                                      juce::int64 expectedSize,
+                                                      juce::int64 maximumSize);
+}
+
 class UpdateService final
 {
 public:
