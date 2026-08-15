@@ -1,5 +1,7 @@
 # 0i-Studio
 
+**English** | [简体中文](README.zh-CN.md)
+
 Native C++20/JUCE desktop and Android application for a professional multitrack
 and spatial audio editor.
 
