@@ -509,7 +509,8 @@ void IconButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
         g.fillRoundedRectangle (bounds, 3.0f);
     }
 
-    const auto glyphColour = getProperties().contains ("accent") ? c.accentInk
+    const auto glyphColour = ! isEnabled() ? c.faint
+                           : getProperties().contains ("accent") ? c.accentInk
                            : getProperties().contains ("danger") ? c.coral
                            : getToggleState() ? c.accent : c.muted;
     drawIconGlyph (g, icon, bounds.reduced (6.0f), glyphColour);
@@ -3990,6 +3991,7 @@ void MainComponent::resized()
     const auto compact = mode == ResponsiveMode::compact;
     const auto showMenus = ! phone && (mode == ResponsiveMode::full || getWidth() >= 820);
     const auto showLanguages = mode == ResponsiveMode::full && getWidth() >= 900;
+    const auto showLandscapeHistory = phoneLandscape && getWidth() >= 760;
     brandLabel.setText (phoneLandscape ? "0i" : "0i  STUDIO",
                         juce::dontSendNotification);
 
@@ -4013,31 +4015,48 @@ void MainComponent::resized()
 
     if (phoneLandscape)
     {
-        brandLabel.setBounds (title.removeFromLeft (88).reduced (8, 5));
+        brandLabel.setBounds (title.removeFromLeft (64).reduced (8, 5));
 
-        auto titleRight = title.removeFromRight (116);
+        auto titleRight = title.removeFromRight (showLandscapeHistory ? 116 : 44);
         moreButton.setVisible (true);
         moreButton.setBounds (titleRight.removeFromRight (44).reduced (3, 5));
-        toolButtons[1]->setBounds (titleRight.removeFromRight (36).reduced (2, 6));
-        toolButtons[0]->setBounds (titleRight.removeFromRight (36).reduced (2, 6));
+        if (showLandscapeHistory)
+        {
+            toolButtons[1]->setBounds (titleRight.removeFromRight (36).reduced (2, 6));
+            toolButtons[0]->setBounds (titleRight.removeFromRight (36).reduced (2, 6));
+        }
+        else
+        {
+            clearBounds (*toolButtons[0]);
+            clearBounds (*toolButtons[1]);
+        }
 
         settingsButton.setVisible (false);
         themeButton.setVisible (false);
         clearBounds (settingsButton);
         clearBounds (themeButton);
 
-        const auto projectWidth = title.getWidth() >= 390
-                                    ? juce::jmin (150, title.getWidth() / 3) : 0;
+        const auto projectWidth = title.getWidth() >= 650
+                                    ? juce::jmin (150, title.getWidth() / 4) : 0;
         if (projectWidth > 0)
         {
             projectLabel.setVisible (true);
-            projectLabel.setBounds (title.removeFromLeft (projectWidth).reduced (2, 4));
+            projectLabel.setBounds (
+                title.removeFromLeft (projectWidth).reduced (2, 4).withTrimmedRight (12));
         }
         else
         {
             projectLabel.setVisible (false);
             clearBounds (projectLabel);
         }
+
+        const auto minimumTransportWidth = 170;
+        const auto contextWidth = juce::jmin (
+            252, juce::jmax (0, title.getWidth() - minimumTransportWidth));
+        clipContextToolbar.setVisible (true);
+        clipContextToolbar.setBounds (
+            title.removeFromLeft (contextWidth).reduced (1));
+        clipContextToolbar.toFront (false);
 
         auto transport = title.withSizeKeepingCentre (juce::jmin (250, title.getWidth()),
                                                        title.getHeight()).reduced (1, 3);
@@ -4179,7 +4198,7 @@ void MainComponent::resized()
     if (phoneLandscape)
     {
         for (size_t i = 0; i < toolButtons.size(); ++i)
-            toolButtons[i]->setVisible (i < 2);
+            toolButtons[i]->setVisible (i < 2 && showLandscapeHistory);
         previousButton.setVisible (true);
         playButton.setVisible (true);
         stopButton.setVisible (true);
@@ -4406,21 +4425,20 @@ void MainComponent::resized()
     if (state.workspace == Workspace::spatial)
         spatialCanvas.repaint();
 
-    const auto showClipContext = phoneLandscape && mobilePanel.isEmpty()
-                              && state.selectedClipId != 0
-                              && ! layoutPanel.isVisible() && ! exportPanel.isVisible();
-    clipContextToolbar.setVisible (showClipContext);
-    if (showClipContext)
+    if (phoneLandscape)
     {
-        const auto availableWidth = juce::jmax (0, timeline.getWidth() - 116);
-        const auto contextWidth = juce::jmin (252, availableWidth);
-        clipContextToolbar.setBounds (timeline.getX() + 108,
-                                      timeline.getY() + 32,
-                                      contextWidth, 40);
-        clipContextToolbar.toFront (false);
+        const auto clipSelected = state.selectedClipId != 0;
+        clipContextToolbar.moveButton.setEnabled (true);
+        for (auto* button : { &clipContextToolbar.rangeButton,
+                              &clipContextToolbar.splitButton,
+                              &clipContextToolbar.duplicateButton,
+                              &clipContextToolbar.spatialButton,
+                              &clipContextToolbar.deleteButton })
+            button->setEnabled (clipSelected);
     }
     else
     {
+        clipContextToolbar.setVisible (false);
         clipContextToolbar.setBounds ({ });
     }
 
